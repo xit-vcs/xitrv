@@ -1,6 +1,8 @@
 const std = @import("std");
 const main = @import("./main.zig");
 
+const hello_world = @embedFile("test/bin/hello_world");
+
 test "create cpu" {
     const allocator = std.testing.allocator;
 

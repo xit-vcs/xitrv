@@ -10,18 +10,21 @@ pub const Step = enum {
 pub const Cpu = struct {
     registers: [32]u32,
     pc: u32,
+    counter: usize,
 
     pub fn init() Cpu {
         return .{
             .registers = [_]u32{0} ** 32,
             .pc = 0,
+            .counter = 0,
         };
     }
 
     pub fn step(self: *Cpu, mem: []u8) Step {
         const instruction = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + 4]);
         if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
-            std.debug.print("{}\n", .{op});
+            std.debug.print("{} {}\n", .{ self.counter, op });
+            self.counter += 1;
             switch (op) {
                 .op_imm => {
                     const function = funct3(instruction);

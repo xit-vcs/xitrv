@@ -43,6 +43,18 @@ pub const Cpu = struct {
                     self.pc += INSTRUCTION_SIZE;
                     return .cont;
                 },
+                .jal => {
+                    const destination_register = rd(instruction);
+                    const imm_value = j_imm(instruction);
+                    const new_pc: u32 = @intCast(@as(i32, @intCast(self.pc)) + imm_value);
+                    self.registers[destination_register] = self.pc + 4;
+                    self.pc = new_pc;
+                    if (self.pc & 0b11 != 0) {
+                        std.debug.print("unaligned instruction\n", .{});
+                        return .exit;
+                    }
+                    return .cont;
+                },
                 else => return .exit,
             }
         } else |_| {
@@ -100,6 +112,14 @@ fn i_imm(instruction: u32) i32 {
     const sign_bit = extract(instruction, 0, SIGN_BIT) != 0;
     const raw_value = extract(instruction, 20, C_11_BITS);
     return sign_extend_32(raw_value, 11, sign_bit);
+}
+
+fn j_imm(instruction: u32) i32 {
+    const sign_bit = instruction & SIGN_BIT != 0;
+    const bit_11 = extract(instruction, 20, 0b1) << 11;
+    const bits_10_to_1 = extract(instruction, 21, C_10_BITS) << 1;
+    const bits_12_to_19 = extract(instruction, 12, C_8_BITS) << 12;
+    return sign_extend_32(bits_12_to_19 | bit_11 | bits_10_to_1, 20, sign_bit);
 }
 
 // decoder

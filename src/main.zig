@@ -28,12 +28,12 @@ pub const Cpu = struct {
                     switch (function) {
                         op_imm.ADDI => {
                             const source_register = rs1(instruction);
-                            const destination_register = rd(instruction);
+                            const dest_register = rd(instruction);
                             const immediate = i_imm(instruction);
                             const source_value: i32 = @bitCast(self.registers[source_register]);
-                            std.debug.print("addi {} {}\n", .{ source_value, immediate });
+                            std.debug.print("addi: {} {}\n", .{ source_value, immediate });
                             const new_value = source_value + immediate;
-                            self.registers[destination_register] = @bitCast(new_value);
+                            self.registers[dest_register] = @bitCast(new_value);
                         },
                         else => {
                             std.debug.print("invalid function: {}\n", .{function});
@@ -44,15 +44,39 @@ pub const Cpu = struct {
                     return .cont;
                 },
                 .jal => {
-                    const destination_register = rd(instruction);
+                    const dest_register = rd(instruction);
                     const imm_value = j_imm(instruction);
                     const new_pc: u32 = @intCast(@as(i32, @intCast(self.pc)) + imm_value);
-                    self.registers[destination_register] = self.pc + 4;
+                    self.registers[dest_register] = self.pc + 4;
                     self.pc = new_pc;
                     if (self.pc & 0b11 != 0) {
                         std.debug.print("unaligned instruction\n", .{});
                         return .exit;
                     }
+                    return .cont;
+                },
+                .store => {
+                    const dest_register = rs1(instruction);
+                    const offset = s_imm(instruction);
+                    const dest_address: u32 = @intCast(@as(i32, @intCast(self.registers[dest_register])) + offset);
+                    const source_value = self.registers[rs2(instruction)];
+                    const function = funct3(instruction);
+                    switch (function) {
+                        store.SB => mem[dest_address] = @intCast(source_value),
+                        store.SH => {
+                            const val: u16 = @intCast(source_value);
+                            @memcpy(mem[dest_address .. dest_address + 2], &std.mem.toBytes(val));
+                        },
+                        store.SW => {
+                            const val: u32 = @intCast(source_value);
+                            @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
+                        },
+                        else => {
+                            std.debug.print("invalid function: {}\n", .{function});
+                            return .exit;
+                        },
+                    }
+                    self.pc += INSTRUCTION_SIZE;
                     return .cont;
                 },
                 else => return .exit,
@@ -75,6 +99,12 @@ const op_imm = struct {
     const ORI: u8 = 0b110;
     const ANDI: u8 = 0b111;
     const SRLI_OR_SRAI: u8 = 0b101;
+};
+
+const store = struct {
+    const SB: u8 = 0b000;
+    const SH: u8 = 0b001;
+    const SW: u8 = 0b010;
 };
 
 fn opcode(instruction: u32) usize {
@@ -112,6 +142,13 @@ fn i_imm(instruction: u32) i32 {
     const sign_bit = extract(instruction, 0, SIGN_BIT) != 0;
     const raw_value = extract(instruction, 20, C_11_BITS);
     return sign_extend_32(raw_value, 11, sign_bit);
+}
+
+fn s_imm(instruction: u32) i32 {
+    const sign_bit = extract(instruction, 0, SIGN_BIT) != 0;
+    const upper_6_bits = extract(instruction, 25, C_6_BITS) << 5;
+    const lower_5_bits = extract(instruction, 7, C_5_BITS);
+    return sign_extend_32(upper_6_bits | lower_5_bits, 11, sign_bit);
 }
 
 fn j_imm(instruction: u32) i32 {

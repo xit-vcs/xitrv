@@ -6,7 +6,7 @@ const hello_world = @embedFile("test/bin/hello_world");
 test "create cpu" {
     const allocator = std.testing.allocator;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 1024);
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer mem.deinit();
     mem.expandToCapacity();
 

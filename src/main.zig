@@ -38,6 +38,7 @@ pub const Cpu = struct {
         if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
             self.counter += 1;
             switch (op) {
+                .op => return error.NotImplemented,
                 .op_imm => {
                     const function = funct3(instruction);
                     switch (function) {
@@ -75,6 +76,8 @@ pub const Cpu = struct {
                     self.pc = new_pc;
                     return .cont;
                 },
+                .lui => return error.NotImplemented,
+                .auipc => return error.NotImplemented,
                 .branch => {
                     const source1_register = rs1(instruction);
                     const source2_register = rs2(instruction);
@@ -134,6 +137,7 @@ pub const Cpu = struct {
                     self.pc += INSTRUCTION_SIZE;
                     return .cont;
                 },
+                .fence => return error.NotImplemented,
                 .system => {
                     const function = funct3(instruction);
                     switch (function) {
@@ -230,7 +234,6 @@ pub const Cpu = struct {
                     self.pc += INSTRUCTION_SIZE;
                     return .cont;
                 },
-                else => return .exit,
             }
         } else |_| {
             return error.InvalidOpcode;

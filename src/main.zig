@@ -58,6 +58,26 @@ pub const Cpu = struct {
                     }
                     return .cont;
                 },
+                .load => {
+                    const source_register = rs1(instruction);
+                    const offset = i_imm(instruction);
+                    const dest_register = rd(instruction);
+                    const source_address: u32 = @intCast(@as(i32, @intCast(self.registers[source_register])) + offset);
+                    const function = funct3(instruction);
+                    switch (function) {
+                        load.LB => self.registers[dest_register] = @intCast(@as(i8, @intCast(mem[source_address]))),
+                        load.LH => self.registers[dest_register] = @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2])),
+                        load.LW => self.registers[dest_register] = @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4])),
+                        load.LBU => self.registers[dest_register] = @as(u8, @intCast(mem[source_address])),
+                        load.LHU => self.registers[dest_register] = std.mem.bytesToValue(u16, mem[source_address .. source_address + 2]),
+                        else => {
+                            std.debug.print("invalid function: {}\n", .{function});
+                            return .exit;
+                        },
+                    }
+                    self.pc += INSTRUCTION_SIZE;
+                    return .cont;
+                },
                 .store => {
                     const dest_register = rs1(instruction);
                     const offset = s_imm(instruction);
@@ -102,6 +122,14 @@ const op_imm = struct {
     const ORI: u8 = 0b110;
     const ANDI: u8 = 0b111;
     const SRLI_OR_SRAI: u8 = 0b101;
+};
+
+const load = struct {
+    const LB: u8 = 0b000;
+    const LH: u8 = 0b001;
+    const LW: u8 = 0b010;
+    const LBU: u8 = 0b100;
+    const LHU: u8 = 0b101;
 };
 
 const store = struct {

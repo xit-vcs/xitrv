@@ -36,7 +36,6 @@ pub const Cpu = struct {
     pub fn step(self: *Cpu, mem: []u8) !Step {
         const instruction = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + 4]);
         if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
-            std.debug.print("{} {}\n", .{ self.counter, op });
             self.counter += 1;
             switch (op) {
                 .op_imm => {
@@ -47,7 +46,6 @@ pub const Cpu = struct {
                             const dest_register = rd(instruction);
                             const immediate = i_imm(instruction);
                             const source_value: i32 = @intCast(self.registers[source_register]);
-                            std.debug.print("addi: {} {}\n", .{ source_value, immediate });
                             const new_value = source_value + immediate;
                             self.set_register(dest_register, @intCast(new_value));
                         },
@@ -63,8 +61,7 @@ pub const Cpu = struct {
                     self.set_register(dest_register, self.pc + 4);
                     self.pc = new_pc;
                     if (self.pc & 0b11 != 0) {
-                        std.debug.print("unaligned instruction\n", .{});
-                        return .exit;
+                        return error.UnalignedInstruction;
                     }
                     return .cont;
                 },

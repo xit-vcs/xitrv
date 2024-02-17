@@ -14,9 +14,17 @@ test "create cpu" {
 
     var cpu = main.Cpu.init();
     while (true) {
-        switch (cpu.step(mem.items)) {
+        const step = try cpu.step(mem.items);
+        switch (step) {
             .cont => {},
             .exit => break,
+            .system => {
+                switch (step.system) {
+                    0 => break,
+                    1 => std.debug.print("{c}", .{@as(u8, @intCast(cpu.registers[11]))}),
+                    else => return error.InvalidEcall,
+                }
+            },
         }
     }
 }

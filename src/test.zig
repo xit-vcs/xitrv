@@ -12,6 +12,9 @@ test "create cpu" {
 
     @memcpy(mem.items[0..hello_world.len], hello_world);
 
+    var output = std.ArrayList(u8).init(allocator);
+    defer output.deinit();
+
     var cpu = main.Cpu.init();
     while (true) {
         const step = try cpu.step(mem.items);
@@ -21,10 +24,12 @@ test "create cpu" {
             .system => {
                 switch (step.system) {
                     0 => break,
-                    1 => std.debug.print("{c}", .{@as(u8, @intCast(cpu.registers[11]))}),
+                    1 => try output.append(@intCast(cpu.registers[11])),
                     else => return error.InvalidEcall,
                 }
             },
         }
     }
+
+    try std.testing.expectEqualStrings("Hello World\n", output.items);
 }

@@ -68,6 +68,16 @@ pub const Cpu = struct {
                     }
                     return .cont;
                 },
+                .jalr => {
+                    const source_register = rs1(instruction);
+                    const source_value: i32 = @intCast(self.registers[source_register]);
+                    const dest_register = rd(instruction);
+                    const imm_value = i_imm(instruction);
+                    const new_pc = @as(u32, @intCast(source_value + imm_value)) & ~@as(u32, 1);
+                    self.set_register(dest_register, self.pc + 4);
+                    self.pc = new_pc;
+                    return .cont;
+                },
                 .branch => {
                     const source1_register = rs1(instruction);
                     const source2_register = rs2(instruction);

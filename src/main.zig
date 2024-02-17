@@ -33,10 +33,10 @@ pub const Cpu = struct {
                             const source_register = rs1(instruction);
                             const dest_register = rd(instruction);
                             const immediate = i_imm(instruction);
-                            const source_value: i32 = @bitCast(self.registers[source_register]);
+                            const source_value: i32 = @intCast(self.registers[source_register]);
                             std.debug.print("addi: {} {}\n", .{ source_value, immediate });
                             const new_value = source_value + immediate;
-                            self.registers[dest_register] = @bitCast(new_value);
+                            self.registers[dest_register] = @intCast(new_value);
                         },
                         else => {
                             std.debug.print("invalid function: {}\n", .{function});

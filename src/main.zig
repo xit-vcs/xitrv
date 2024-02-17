@@ -58,6 +58,30 @@ pub const Cpu = struct {
                     }
                     return .cont;
                 },
+                .branch => {
+                    const source1_register = rs1(instruction);
+                    const source2_register = rs2(instruction);
+                    const offset = b_imm(instruction);
+                    const function = funct3(instruction);
+                    const cond = switch (function) {
+                        branch.BEQ => @as(i32, @intCast(self.registers[source1_register])) == @as(i32, @intCast(self.registers[source2_register])),
+                        branch.BNE => @as(i32, @intCast(self.registers[source1_register])) != @as(i32, @intCast(self.registers[source2_register])),
+                        branch.BLT => @as(i32, @intCast(self.registers[source1_register])) < @as(i32, @intCast(self.registers[source2_register])),
+                        branch.BGE => @as(i32, @intCast(self.registers[source1_register])) >= @as(i32, @intCast(self.registers[source2_register])),
+                        branch.BLTU => self.registers[source1_register] < self.registers[source2_register],
+                        branch.BGEU => self.registers[source1_register] >= self.registers[source2_register],
+                        else => {
+                            std.debug.print("invalid function: {}\n", .{function});
+                            return .exit;
+                        },
+                    };
+                    if (cond) {
+                        self.pc = @intCast(@as(i32, @intCast(self.pc)) + offset);
+                    } else {
+                        self.pc += INSTRUCTION_SIZE;
+                    }
+                    return .cont;
+                },
                 .load => {
                     const source_register = rs1(instruction);
                     const offset = i_imm(instruction);
@@ -124,6 +148,15 @@ const op_imm = struct {
     const SRLI_OR_SRAI: u8 = 0b101;
 };
 
+const branch = struct {
+    const BEQ: u8 = 0b000;
+    const BNE: u8 = 0b001;
+    const BLT: u8 = 0b100;
+    const BGE: u8 = 0b101;
+    const BLTU: u8 = 0b110;
+    const BGEU: u8 = 0b111;
+};
+
 const load = struct {
     const LB: u8 = 0b000;
     const LH: u8 = 0b001;
@@ -180,6 +213,14 @@ fn s_imm(instruction: u32) i32 {
     const upper_6_bits = extract(instruction, 25, C_6_BITS) << 5;
     const lower_5_bits = extract(instruction, 7, C_5_BITS);
     return sign_extend_32(upper_6_bits | lower_5_bits, 11, sign_bit);
+}
+
+fn b_imm(instruction: u32) i32 {
+    const sign_bit = instruction & SIGN_BIT != 0;
+    const bit_11 = extract(instruction, 7, 0b1) << 11;
+    const bits_10_to_5 = extract(instruction, 25, C_6_BITS) << 5;
+    const bits_4_to_1 = extract(instruction, 8, C_4_BITS) << 1;
+    return sign_extend_32(bit_11 | bits_10_to_5 | bits_4_to_1, 12, sign_bit);
 }
 
 fn j_imm(instruction: u32) i32 {

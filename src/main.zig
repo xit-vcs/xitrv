@@ -36,7 +36,7 @@ pub const Cpu = struct {
                             const source_value: i32 = @intCast(self.registers[source_register]);
                             std.debug.print("addi: {} {}\n", .{ source_value, immediate });
                             const new_value = source_value + immediate;
-                            self.registers[dest_register] = @intCast(new_value);
+                            self.set(dest_register, @intCast(new_value));
                         },
                         else => {
                             std.debug.print("invalid function: {}\n", .{function});
@@ -50,7 +50,7 @@ pub const Cpu = struct {
                     const dest_register = rd(instruction);
                     const imm_value = j_imm(instruction);
                     const new_pc: u32 = @intCast(@as(i32, @intCast(self.pc)) + imm_value);
-                    self.registers[dest_register] = self.pc + 4;
+                    self.set(dest_register, self.pc + 4);
                     self.pc = new_pc;
                     if (self.pc & 0b11 != 0) {
                         std.debug.print("unaligned instruction\n", .{});
@@ -89,11 +89,11 @@ pub const Cpu = struct {
                     const source_address: u32 = @intCast(@as(i32, @intCast(self.registers[source_register])) + offset);
                     const function = funct3(instruction);
                     switch (function) {
-                        load.LB => self.registers[dest_register] = @intCast(@as(i8, @intCast(mem[source_address]))),
-                        load.LH => self.registers[dest_register] = @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2])),
-                        load.LW => self.registers[dest_register] = @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4])),
-                        load.LBU => self.registers[dest_register] = @as(u8, @intCast(mem[source_address])),
-                        load.LHU => self.registers[dest_register] = std.mem.bytesToValue(u16, mem[source_address .. source_address + 2]),
+                        load.LB => self.set(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
+                        load.LH => self.set(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
+                        load.LW => self.set(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
+                        load.LBU => self.set(dest_register, @as(u8, @intCast(mem[source_address]))),
+                        load.LHU => self.set(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
                         else => {
                             std.debug.print("invalid function: {}\n", .{function});
                             return .exit;
@@ -131,6 +131,12 @@ pub const Cpu = struct {
         } else |_| {
             std.debug.print("invalid opcode: {}\n", .{instruction});
             return .exit;
+        }
+    }
+
+    fn set(self: *Cpu, register: usize, value: u32) void {
+        if (register != 0) {
+            self.registers[register] = value;
         }
     }
 };

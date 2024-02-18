@@ -33,3 +33,11 @@ test "create cpu" {
 
     try std.testing.expectEqualStrings("Hello World\n", output.items);
 }
+
+test "test lib" {
+    const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
+    defer test_file.close();
+    const meta = try test_file.metadata();
+    const file_size = meta.size();
+    try std.testing.expect(file_size > 0);
+}

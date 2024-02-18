@@ -4,6 +4,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const test_lib = b.addSharedLibrary(.{
+        .name = "test",
+        .root_source_file = .{ .path = "src/test/lib.zig" },
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .riscv64,
+            .os_tag = .linux,
+            .ofmt = .elf,
+        }),
+        .optimize = .ReleaseSmall,
+    });
+    const install_test_lib = b.addInstallArtifact(test_lib, .{});
+
     const unit_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/test.zig" },
         .target = target,
@@ -11,5 +23,6 @@ pub fn build(b: *std.Build) void {
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run library tests");
+    test_step.dependOn(&install_test_lib.step);
     test_step.dependOn(&run_unit_tests.step);
 }

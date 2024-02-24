@@ -35,7 +35,8 @@ test "create cpu" {
 }
 
 test "test lib" {
+    const allocator = std.testing.allocator;
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
-    try elf.parseElf(test_file.reader());
+    try elf.parseElf(allocator, test_file.reader());
 }

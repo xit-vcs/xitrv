@@ -1,5 +1,5 @@
 const std = @import("std");
-const main = @import("./main.zig");
+const Cpu = @import("./cpu.zig").Cpu;
 
 const hello_world = @embedFile("test/bin/hello_world");
 
@@ -15,7 +15,7 @@ test "create cpu" {
     var output = std.ArrayList(u8).init(allocator);
     defer output.deinit();
 
-    var cpu = main.Cpu.init();
+    var cpu = Cpu.init();
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {

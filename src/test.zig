@@ -1,6 +1,6 @@
 const std = @import("std");
 const Cpu = @import("./cpu.zig").Cpu;
-const elf = @import("./elf.zig");
+const Elf = @import("./elf.zig").Elf;
 
 test "create cpu" {
     const hello_world = @embedFile("test/bin/hello_world");
@@ -34,9 +34,10 @@ test "create cpu" {
     try std.testing.expectEqualStrings("Hello World\n", output.items);
 }
 
-test "test lib" {
+test "parse elf" {
     const allocator = std.testing.allocator;
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
-    try elf.parseElf(allocator, test_file.reader());
+    var elf = try Elf.init(allocator, test_file.reader());
+    defer elf.deinit();
 }

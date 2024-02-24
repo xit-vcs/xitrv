@@ -1,9 +1,9 @@
 const std = @import("std");
 const Cpu = @import("./cpu.zig").Cpu;
-
-const hello_world = @embedFile("test/bin/hello_world");
+const elf = @import("./elf.zig");
 
 test "create cpu" {
+    const hello_world = @embedFile("test/bin/hello_world");
     const allocator = std.testing.allocator;
 
     var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
@@ -37,7 +37,5 @@ test "create cpu" {
 test "test lib" {
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
-    const meta = try test_file.metadata();
-    const file_size = meta.size();
-    try std.testing.expect(file_size > 0);
+    try elf.parseElf(test_file.reader());
 }

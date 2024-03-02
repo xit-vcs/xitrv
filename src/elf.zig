@@ -216,7 +216,13 @@ pub const Elf = struct {
         if (shoff < section_start_pos) {
             return error.InvalidSectionHeaderOffset;
         }
-        try reader.skipBytes(shoff - section_start_pos, .{});
+        const section_bytes_len = shoff - section_start_pos;
+        if (section_bytes_len > 10_000_000) {
+            return error.SectionDataTooLong;
+        }
+        const section_bytes = try allocator.alloc(u8, section_bytes_len);
+        defer allocator.free(section_bytes);
+        try reader.readNoEof(section_bytes);
 
         // section headers
 

@@ -26,7 +26,40 @@ pub const ProgramHeader = struct {
     alignment: u64,
 };
 
-pub const SectionHeader = struct {
+pub const Symbol = struct {
+    kind: enum {
+        none,
+        object,
+        func,
+        section,
+        file,
+        loos,
+        hios,
+        loproc,
+        hiproc,
+    },
+    binding: enum {
+        local,
+        global,
+        weak,
+        loos,
+        hios,
+        loproc,
+        hiproc,
+    },
+    visibility: enum {
+        default,
+        internal,
+        hidden,
+        protected,
+    },
+    name: u32,
+    shndx: u16,
+    value: u64,
+    size: u64,
+};
+
+pub const Section = struct {
     name: u32,
     kind: union(enum) {
         unused,
@@ -40,7 +73,9 @@ pub const SectionHeader = struct {
         nobits,
         rel,
         shlib,
-        dynsym,
+        dynsym: struct {
+            symbols: std.ArrayList(Symbol),
+        },
         init_array,
         fini_array,
         preinit_array,
@@ -75,8 +110,11 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
+    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
     program_headers: std.ArrayList(ProgramHeader),
-    section_headers: std.ArrayList(SectionHeader),
+    sections: std.ArrayList(Section),
+    section_buffer: []u8,
 
     pub fn init(allocator: std.mem.Allocator, reader: anytype) !Elf {
         // elf header
@@ -216,23 +254,24 @@ pub const Elf = struct {
         if (shoff < section_start_pos) {
             return error.InvalidSectionHeaderOffset;
         }
-        const section_bytes_len = shoff - section_start_pos;
-        if (section_bytes_len > 10_000_000) {
+        const section_buffer_len = shoff - section_start_pos;
+        if (section_buffer_len > 10_000_000) {
             return error.SectionDataTooLong;
         }
-        const section_bytes = try allocator.alloc(u8, section_bytes_len);
-        defer allocator.free(section_bytes);
-        try reader.readNoEof(section_bytes);
+        const section_buffer = try allocator.alloc(u8, section_buffer_len);
+        errdefer allocator.free(section_buffer);
+        try reader.readNoEof(section_buffer);
 
-        // section headers
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        errdefer arena.deinit();
 
-        var section_headers = std.ArrayList(SectionHeader).init(allocator);
-        errdefer section_headers.deinit();
+        var sections = std.ArrayList(Section).init(allocator);
+        errdefer sections.deinit();
         for (0..shnum) |_| {
             const name = try reader.readInt(u32, endian);
             const kind = try reader.readInt(u32, endian);
             const attributes = try reader.readInt(u64, endian);
-            const header = SectionHeader{
+            var section = Section{
                 .name = name,
                 .kind = switch (kind) {
                     0x0 => .unused,
@@ -246,7 +285,9 @@ pub const Elf = struct {
                     0x8 => .nobits,
                     0x9 => .rel,
                     0x0A => .shlib,
-                    0x0B => .dynsym,
+                    0x0B => .{ .dynsym = .{
+                        .symbols = std.ArrayList(Symbol).init(arena.allocator()),
+                    } },
                     0x0E => .init_array,
                     0x0F => .fini_array,
                     0x10 => .preinit_array,
@@ -280,25 +321,78 @@ pub const Elf = struct {
                 .alignment = try reader.readInt(u64, endian),
                 .entry_size = try reader.readInt(u64, endian),
             };
-            if (header.offset != 0 and header.size != 0) {
-                if (header.offset < section_start_pos or header.offset >= shoff) {
+            if (section.kind == .dynsym) {
+                if (section.offset < section_start_pos or section.offset >= shoff) {
                     return error.InvalidSectionOffset;
                 }
-                if (header.offset + header.size > shoff) {
+                if (section.entry_size != 24) {
+                    return error.InvalidSectionEntrySize;
+                }
+                if (section.offset + section.size > shoff or section.size % section.entry_size != 0) {
                     return error.InvalidSectionSize;
                 }
+                for (0..section.size / section.entry_size) |i| {
+                    const entry_start_pos = (section.offset - section_start_pos) + (section.entry_size * i);
+                    const buffer = section_buffer[entry_start_pos .. entry_start_pos + section.entry_size];
+                    var stream = std.io.fixedBufferStream(buffer);
+                    const entry_reader = stream.reader();
+                    const entry_name = try entry_reader.readInt(u32, endian);
+                    const info = try entry_reader.readInt(u8, endian);
+                    const other = try entry_reader.readInt(u8, endian);
+                    const symbol = Symbol{
+                        .kind = switch (info & 0xf) {
+                            0 => .none,
+                            1 => .object,
+                            2 => .func,
+                            3 => .section,
+                            4 => .file,
+                            10 => .loos,
+                            12 => .hios,
+                            13 => .loproc,
+                            15 => .hiproc,
+                            else => return error.InvalidSymbolKind,
+                        },
+                        .binding = switch (info >> 4) {
+                            0 => .local,
+                            1 => .global,
+                            2 => .weak,
+                            10 => .loos,
+                            12 => .hios,
+                            13 => .loproc,
+                            15 => .hiproc,
+                            else => return error.InvalidSymbolBinding,
+                        },
+                        .visibility = switch (other & 0x03) {
+                            0 => .default,
+                            1 => .internal,
+                            2 => .hidden,
+                            3 => .protected,
+                            else => return error.InvalidSymbolVisibility,
+                        },
+                        .name = entry_name,
+                        .shndx = try entry_reader.readInt(u16, endian),
+                        .value = try entry_reader.readInt(u64, endian),
+                        .size = try entry_reader.readInt(u64, endian),
+                    };
+                    try section.kind.dynsym.symbols.append(symbol);
+                }
             }
-            try section_headers.append(header);
+            try sections.append(section);
         }
 
         return .{
+            .allocator = allocator,
+            .arena = arena,
             .program_headers = program_headers,
-            .section_headers = section_headers,
+            .sections = sections,
+            .section_buffer = section_buffer,
         };
     }
 
     pub fn deinit(self: *Elf) void {
+        self.arena.deinit();
         self.program_headers.deinit();
-        self.section_headers.deinit();
+        self.sections.deinit();
+        self.allocator.free(self.section_buffer);
     }
 };

@@ -27,25 +27,21 @@ pub const ProgramHeader = struct {
 };
 
 pub const Symbol = struct {
-    kind: enum {
+    kind: union(enum) {
         none,
         object,
         func,
         section,
         file,
-        loos,
-        hios,
-        loproc,
-        hiproc,
+        os: u8,
+        proc: u8,
     },
-    binding: enum {
+    binding: union(enum) {
         local,
         global,
         weak,
-        loos,
-        hios,
-        loproc,
-        hiproc,
+        os: u8,
+        proc: u8,
     },
     visibility: enum {
         default,
@@ -63,28 +59,26 @@ pub const Symbol = struct {
         const reader = stream.reader();
         const entry_name = try reader.readInt(u32, endian);
         const entry_info = try reader.readInt(u8, endian);
+        const kind = entry_info & 0xf;
+        const binding = entry_info >> 4;
         const other = try reader.readInt(u8, endian);
         return Symbol{
-            .kind = switch (entry_info & 0xf) {
+            .kind = switch (kind) {
                 0 => .none,
                 1 => .object,
                 2 => .func,
                 3 => .section,
                 4 => .file,
-                10 => .loos,
-                12 => .hios,
-                13 => .loproc,
-                15 => .hiproc,
+                10...12 => .{ .os = kind },
+                13...15 => .{ .proc = kind },
                 else => return error.InvalidSymbolKind,
             },
-            .binding = switch (entry_info >> 4) {
+            .binding = switch (binding) {
                 0 => .local,
                 1 => .global,
                 2 => .weak,
-                10 => .loos,
-                12 => .hios,
-                13 => .loproc,
-                15 => .hiproc,
+                10...12 => .{ .os = binding },
+                13...15 => .{ .proc = binding },
                 else => return error.InvalidSymbolBinding,
             },
             .visibility = switch (other & 0x03) {

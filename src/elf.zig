@@ -57,13 +57,58 @@ pub const Symbol = struct {
     shndx: u16,
     value: u64,
     size: u64,
+
+    pub fn init(buffer: []const u8, endian: std.builtin.Endian) !Symbol {
+        var stream = std.io.fixedBufferStream(buffer);
+        const reader = stream.reader();
+        const entry_name = try reader.readInt(u32, endian);
+        const entry_info = try reader.readInt(u8, endian);
+        const other = try reader.readInt(u8, endian);
+        return Symbol{
+            .kind = switch (entry_info & 0xf) {
+                0 => .none,
+                1 => .object,
+                2 => .func,
+                3 => .section,
+                4 => .file,
+                10 => .loos,
+                12 => .hios,
+                13 => .loproc,
+                15 => .hiproc,
+                else => return error.InvalidSymbolKind,
+            },
+            .binding = switch (entry_info >> 4) {
+                0 => .local,
+                1 => .global,
+                2 => .weak,
+                10 => .loos,
+                12 => .hios,
+                13 => .loproc,
+                15 => .hiproc,
+                else => return error.InvalidSymbolBinding,
+            },
+            .visibility = switch (other & 0x03) {
+                0 => .default,
+                1 => .internal,
+                2 => .hidden,
+                3 => .protected,
+                else => return error.InvalidSymbolVisibility,
+            },
+            .name = entry_name,
+            .shndx = try reader.readInt(u16, endian),
+            .value = try reader.readInt(u64, endian),
+            .size = try reader.readInt(u64, endian),
+        };
+    }
 };
 
 pub const Section = struct {
     name: u32,
     kind: union(enum) {
         unused,
-        progbits,
+        progbits: struct {
+            buffer: []u8,
+        },
         symtab,
         strtab,
         rela,
@@ -271,11 +316,29 @@ pub const Elf = struct {
             const name = try reader.readInt(u32, endian);
             const kind = try reader.readInt(u32, endian);
             const attributes = try reader.readInt(u64, endian);
-            var section = Section{
+            const addr = try reader.readInt(u64, endian);
+            const offset = try reader.readInt(u64, endian);
+            const size = try reader.readInt(u64, endian);
+            const link = try reader.readInt(u32, endian);
+            const info = try reader.readInt(u32, endian);
+            const alignment = try reader.readInt(u64, endian);
+            const entry_size = try reader.readInt(u64, endian);
+            const section = Section{
                 .name = name,
                 .kind = switch (kind) {
                     0x0 => .unused,
-                    0x1 => .progbits,
+                    0x1 => blk: {
+                        if (offset < section_start_pos or offset >= shoff) {
+                            return error.InvalidSectionOffset;
+                        }
+                        if (offset + size > shoff) {
+                            return error.InvalidSectionSize;
+                        }
+                        const start_pos = offset - section_start_pos;
+                        break :blk .{ .progbits = .{
+                            .buffer = section_buffer[start_pos .. start_pos + size],
+                        } };
+                    },
                     0x2 => .symtab,
                     0x3 => .strtab,
                     0x4 => .rela,
@@ -285,9 +348,26 @@ pub const Elf = struct {
                     0x8 => .nobits,
                     0x9 => .rel,
                     0x0A => .shlib,
-                    0x0B => .{ .dynsym = .{
-                        .symbols = std.ArrayList(Symbol).init(arena.allocator()),
-                    } },
+                    0x0B => blk: {
+                        var symbols = std.ArrayList(Symbol).init(arena.allocator());
+                        if (offset < section_start_pos or offset >= shoff) {
+                            return error.InvalidSectionOffset;
+                        }
+                        if (entry_size != 24) {
+                            return error.InvalidSectionEntrySize;
+                        }
+                        if (offset + size > shoff or size % entry_size != 0) {
+                            return error.InvalidSectionSize;
+                        }
+                        for (0..size / entry_size) |i| {
+                            const entry_start_pos = (offset - section_start_pos) + (entry_size * i);
+                            const buffer = section_buffer[entry_start_pos .. entry_start_pos + entry_size];
+                            try symbols.append(try Symbol.init(buffer, endian));
+                        }
+                        break :blk .{ .dynsym = .{
+                            .symbols = symbols,
+                        } };
+                    },
                     0x0E => .init_array,
                     0x0F => .fini_array,
                     0x10 => .preinit_array,
@@ -313,70 +393,14 @@ pub const Elf = struct {
                     .ordered = attributes & 0x4000000 != 0,
                     .exclude = attributes & 0x8000000 != 0,
                 },
-                .addr = try reader.readInt(u64, endian),
-                .offset = try reader.readInt(u64, endian),
-                .size = try reader.readInt(u64, endian),
-                .link = try reader.readInt(u32, endian),
-                .info = try reader.readInt(u32, endian),
-                .alignment = try reader.readInt(u64, endian),
-                .entry_size = try reader.readInt(u64, endian),
+                .addr = addr,
+                .offset = offset,
+                .size = size,
+                .link = link,
+                .info = info,
+                .alignment = alignment,
+                .entry_size = entry_size,
             };
-            if (section.kind == .dynsym) {
-                if (section.offset < section_start_pos or section.offset >= shoff) {
-                    return error.InvalidSectionOffset;
-                }
-                if (section.entry_size != 24) {
-                    return error.InvalidSectionEntrySize;
-                }
-                if (section.offset + section.size > shoff or section.size % section.entry_size != 0) {
-                    return error.InvalidSectionSize;
-                }
-                for (0..section.size / section.entry_size) |i| {
-                    const entry_start_pos = (section.offset - section_start_pos) + (section.entry_size * i);
-                    const buffer = section_buffer[entry_start_pos .. entry_start_pos + section.entry_size];
-                    var stream = std.io.fixedBufferStream(buffer);
-                    const entry_reader = stream.reader();
-                    const entry_name = try entry_reader.readInt(u32, endian);
-                    const info = try entry_reader.readInt(u8, endian);
-                    const other = try entry_reader.readInt(u8, endian);
-                    const symbol = Symbol{
-                        .kind = switch (info & 0xf) {
-                            0 => .none,
-                            1 => .object,
-                            2 => .func,
-                            3 => .section,
-                            4 => .file,
-                            10 => .loos,
-                            12 => .hios,
-                            13 => .loproc,
-                            15 => .hiproc,
-                            else => return error.InvalidSymbolKind,
-                        },
-                        .binding = switch (info >> 4) {
-                            0 => .local,
-                            1 => .global,
-                            2 => .weak,
-                            10 => .loos,
-                            12 => .hios,
-                            13 => .loproc,
-                            15 => .hiproc,
-                            else => return error.InvalidSymbolBinding,
-                        },
-                        .visibility = switch (other & 0x03) {
-                            0 => .default,
-                            1 => .internal,
-                            2 => .hidden,
-                            3 => .protected,
-                            else => return error.InvalidSymbolVisibility,
-                        },
-                        .name = entry_name,
-                        .shndx = try entry_reader.readInt(u16, endian),
-                        .value = try entry_reader.readInt(u64, endian),
-                        .size = try entry_reader.readInt(u64, endian),
-                    };
-                    try section.kind.dynsym.symbols.append(symbol);
-                }
-            }
             try sections.append(section);
         }
 

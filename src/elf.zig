@@ -49,7 +49,8 @@ pub const Symbol = struct {
         hidden,
         protected,
     },
-    name: u32,
+    name_idx: u32,
+    name_str: []const u8,
     shndx: u16,
     value: u64,
     size: u64,
@@ -88,7 +89,8 @@ pub const Symbol = struct {
                 3 => .protected,
                 else => return error.InvalidSymbolVisibility,
             },
-            .name = entry_name,
+            .name_idx = entry_name,
+            .name_str = undefined,
             .shndx = try reader.readInt(u16, endian),
             .value = try reader.readInt(u64, endian),
             .size = try reader.readInt(u64, endian),
@@ -97,14 +99,17 @@ pub const Symbol = struct {
 };
 
 pub const Section = struct {
-    name: u32,
+    name_off: usize,
+    name_str: []const u8,
     kind: union(enum) {
         unused,
         progbits: struct {
             buffer: []u8,
         },
         symtab,
-        strtab,
+        strtab: struct {
+            offset_to_string: std.AutoArrayHashMap(usize, []const u8),
+        },
         rela,
         hash,
         dynamic,
@@ -249,7 +254,7 @@ pub const Elf = struct {
             return error.TooManySectionHeaderTableEntries;
         }
 
-        _ = try reader.readInt(u16, endian); // shstrndx
+        const shstrndx = try reader.readInt(u16, endian);
 
         // program headers
 
@@ -318,7 +323,8 @@ pub const Elf = struct {
             const alignment = try reader.readInt(u64, endian);
             const entry_size = try reader.readInt(u64, endian);
             const section = Section{
-                .name = name,
+                .name_off = name,
+                .name_str = undefined,
                 .kind = switch (kind) {
                     0x0 => .unused,
                     0x1 => blk: {
@@ -334,7 +340,30 @@ pub const Elf = struct {
                         } };
                     },
                     0x2 => .symtab,
-                    0x3 => .strtab,
+                    0x3 => blk: {
+                        if (offset < section_start_pos or offset >= shoff) {
+                            return error.InvalidSectionOffset;
+                        }
+                        if (offset + size > shoff) {
+                            return error.InvalidSectionSize;
+                        }
+                        const start_pos = offset - section_start_pos;
+                        const buffer = section_buffer[start_pos .. start_pos + size];
+                        var offset_to_string = std.AutoArrayHashMap(usize, []const u8).init(arena.allocator());
+                        var i: usize = 0;
+                        while (i < buffer.len) {
+                            if (std.mem.indexOf(u8, buffer[i..], "\x00")) |next_i| {
+                                try offset_to_string.put(i, buffer[i .. i + next_i]);
+                                i += next_i + 1;
+                            } else {
+                                try offset_to_string.put(i, buffer[i..]);
+                                break;
+                            }
+                        }
+                        break :blk .{ .strtab = .{
+                            .offset_to_string = offset_to_string,
+                        } };
+                    },
                     0x4 => .rela,
                     0x5 => .hash,
                     0x6 => .dynamic,
@@ -343,7 +372,6 @@ pub const Elf = struct {
                     0x9 => .rel,
                     0x0A => .shlib,
                     0x0B => blk: {
-                        var symbols = std.ArrayList(Symbol).init(arena.allocator());
                         if (offset < section_start_pos or offset >= shoff) {
                             return error.InvalidSectionOffset;
                         }
@@ -353,8 +381,10 @@ pub const Elf = struct {
                         if (offset + size > shoff or size % entry_size != 0) {
                             return error.InvalidSectionSize;
                         }
+                        const start_pos = offset - section_start_pos;
+                        var symbols = std.ArrayList(Symbol).init(arena.allocator());
                         for (0..size / entry_size) |i| {
-                            const entry_start_pos = (offset - section_start_pos) + (entry_size * i);
+                            const entry_start_pos = start_pos + (entry_size * i);
                             const buffer = section_buffer[entry_start_pos .. entry_start_pos + entry_size];
                             try symbols.append(try Symbol.init(buffer, endian));
                         }
@@ -396,6 +426,28 @@ pub const Elf = struct {
                 .entry_size = entry_size,
             };
             try sections.append(section);
+        }
+
+        // set name_str for sections and symbols
+        const section_offset_to_string = &sections.items[shstrndx].kind.strtab.offset_to_string;
+        const program_strings = for (sections.items, 0..) |section, i| {
+            if (section.kind == .strtab and i != shstrndx) {
+                break section.kind.strtab.offset_to_string.values();
+            }
+        } else {
+            return error.ProgramStringsNotFound;
+        };
+        for (sections.items) |*section| {
+            section.name_str = section_offset_to_string.get(section.name_off) orelse return error.SectionStringNotFound;
+            if (section.kind == .dynsym) {
+                for (section.kind.dynsym.symbols.items) |*symbol| {
+                    if (symbol.name_idx < program_strings.len) {
+                        symbol.name_str = program_strings[symbol.name_idx];
+                    } else {
+                        return error.ProgramStringNotFound;
+                    }
+                }
+            }
         }
 
         return .{

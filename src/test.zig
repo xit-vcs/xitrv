@@ -40,4 +40,9 @@ test "parse elf" {
     defer test_file.close();
     var elf = try Elf.init(allocator, test_file.reader());
     defer elf.deinit();
+
+    const start_symbol = elf.name_to_dynsym.get("start") orelse return error.StartSymbolNotFound;
+    const progbits_section = elf.sections.items[start_symbol.shndx];
+    const start_offset = start_symbol.value - progbits_section.addr;
+    try std.testing.expectEqual(0, start_offset);
 }

@@ -159,6 +159,7 @@ pub const Elf = struct {
     program_headers: std.ArrayList(ProgramHeader),
     sections: std.ArrayList(Section),
     section_buffer: []u8,
+    name_to_dynsym: std.StringArrayHashMap(*Symbol),
 
     pub fn init(allocator: std.mem.Allocator, reader: anytype) !Elf {
         // elf header
@@ -450,12 +451,23 @@ pub const Elf = struct {
             }
         }
 
+        var name_to_dynsym = std.StringArrayHashMap(*Symbol).init(allocator);
+        errdefer name_to_dynsym.deinit();
+        for (sections.items) |section| {
+            if (section.kind == .dynsym) {
+                for (section.kind.dynsym.symbols.items) |*symbol| {
+                    try name_to_dynsym.putNoClobber(symbol.name_str, symbol);
+                }
+            }
+        }
+
         return .{
             .allocator = allocator,
             .arena = arena,
             .program_headers = program_headers,
             .sections = sections,
             .section_buffer = section_buffer,
+            .name_to_dynsym = name_to_dynsym,
         };
     }
 
@@ -464,5 +476,6 @@ pub const Elf = struct {
         self.program_headers.deinit();
         self.sections.deinit();
         self.allocator.free(self.section_buffer);
+        self.name_to_dynsym.deinit();
     }
 };

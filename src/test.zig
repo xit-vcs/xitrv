@@ -15,7 +15,7 @@ test "create cpu" {
     var output = std.ArrayList(u8).init(allocator);
     defer output.deinit();
 
-    var cpu = Cpu.init();
+    var cpu = Cpu(.rv32).init();
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {

@@ -1,271 +1,283 @@
 const std = @import("std");
 
-const INSTRUCTION_SIZE: u32 = 4;
-
-pub const Step = union(enum) {
-    cont,
-    exit,
-    system: u32,
+pub const CpuKind = enum {
+    rv32,
+    rv64,
 };
 
-pub const Cpu = struct {
-    registers: [32]u32,
-    pc: u32,
-    csrs: struct {
-        rdcycle: u64,
-        instret: u64,
-        rdtime: u64,
-        test_register: u32,
-    },
-    counter: usize,
+pub fn Cpu(comptime cpu_kind: CpuKind) type {
+    return struct {
+        registers: [32]URegister,
+        pc: URegister,
+        csrs: struct {
+            rdcycle: u64,
+            instret: u64,
+            rdtime: u64,
+            test_register: URegister,
+        },
 
-    pub fn init() Cpu {
-        return .{
-            .registers = [_]u32{0} ** 32,
-            .pc = 0,
-            .csrs = .{
-                .rdcycle = 0,
-                .instret = 0,
-                .rdtime = 0,
-                .test_register = 0,
-            },
-            .counter = 0,
+        const URegister = switch (cpu_kind) {
+            .rv32 => u32,
+            .rv64 => u64,
         };
-    }
+        const IRegister = switch (cpu_kind) {
+            .rv32 => i32,
+            .rv64 => i64,
+        };
+        const register_size = @sizeOf(URegister);
+        const Step = union(enum) {
+            cont,
+            exit,
+            system: URegister,
+        };
 
-    pub fn step(self: *Cpu, mem: []u8) !Step {
-        const instruction = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + 4]);
-        if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
-            self.counter += 1;
-            switch (op) {
-                .op => return error.NotImplemented,
-                .op_imm => {
-                    const function = funct3(instruction);
-                    switch (function) {
-                        op_imm.ADDI => {
-                            const source_register = rs1(instruction);
-                            const dest_register = rd(instruction);
-                            const immediate = i_imm(instruction);
-                            const source_value: i32 = @intCast(self.registers[source_register]);
-                            const new_value = source_value + immediate;
-                            self.set_register(dest_register, @intCast(new_value));
-                        },
-                        else => return error.InvalidFunction,
-                    }
-                    self.pc += INSTRUCTION_SIZE;
-                    return .cont;
+        pub fn init() Cpu(cpu_kind) {
+            return .{
+                .registers = [_]URegister{0} ** 32,
+                .pc = 0,
+                .csrs = .{
+                    .rdcycle = 0,
+                    .instret = 0,
+                    .rdtime = 0,
+                    .test_register = 0,
                 },
-                .jal => {
-                    const dest_register = rd(instruction);
-                    const imm_value = j_imm(instruction);
-                    const new_pc: u32 = @intCast(@as(i32, @intCast(self.pc)) + imm_value);
-                    self.set_register(dest_register, self.pc + 4);
-                    self.pc = new_pc;
-                    if (self.pc & 0b11 != 0) {
-                        return error.UnalignedInstruction;
-                    }
-                    return .cont;
-                },
-                .jalr => {
-                    const source_register = rs1(instruction);
-                    const source_value: i32 = @intCast(self.registers[source_register]);
-                    const dest_register = rd(instruction);
-                    const imm_value = i_imm(instruction);
-                    const new_pc = @as(u32, @intCast(source_value + imm_value)) & ~@as(u32, 1);
-                    self.set_register(dest_register, self.pc + 4);
-                    self.pc = new_pc;
-                    return .cont;
-                },
-                .lui => return error.NotImplemented,
-                .auipc => return error.NotImplemented,
-                .branch => {
-                    const source1_register = rs1(instruction);
-                    const source2_register = rs2(instruction);
-                    const offset = b_imm(instruction);
-                    const function = funct3(instruction);
-                    const cond = switch (function) {
-                        branch.BEQ => @as(i32, @intCast(self.registers[source1_register])) == @as(i32, @intCast(self.registers[source2_register])),
-                        branch.BNE => @as(i32, @intCast(self.registers[source1_register])) != @as(i32, @intCast(self.registers[source2_register])),
-                        branch.BLT => @as(i32, @intCast(self.registers[source1_register])) < @as(i32, @intCast(self.registers[source2_register])),
-                        branch.BGE => @as(i32, @intCast(self.registers[source1_register])) >= @as(i32, @intCast(self.registers[source2_register])),
-                        branch.BLTU => self.registers[source1_register] < self.registers[source2_register],
-                        branch.BGEU => self.registers[source1_register] >= self.registers[source2_register],
-                        else => return error.InvalidFunction,
-                    };
-                    if (cond) {
-                        self.pc = @intCast(@as(i32, @intCast(self.pc)) + offset);
-                    } else {
-                        self.pc += INSTRUCTION_SIZE;
-                    }
-                    return .cont;
-                },
-                .load => {
-                    const source_register = rs1(instruction);
-                    const offset = i_imm(instruction);
-                    const dest_register = rd(instruction);
-                    const source_address: u32 = @intCast(@as(i32, @intCast(self.registers[source_register])) + offset);
-                    const function = funct3(instruction);
-                    switch (function) {
-                        load.LB => self.set_register(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
-                        load.LH => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
-                        load.LW => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
-                        load.LBU => self.set_register(dest_register, @as(u8, @intCast(mem[source_address]))),
-                        load.LHU => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
-                        else => return error.InvalidFunction,
-                    }
-                    self.pc += INSTRUCTION_SIZE;
-                    return .cont;
-                },
-                .store => {
-                    const dest_register = rs1(instruction);
-                    const offset = s_imm(instruction);
-                    const dest_address: u32 = @intCast(@as(i32, @intCast(self.registers[dest_register])) + offset);
-                    const source_value = self.registers[rs2(instruction)];
-                    const function = funct3(instruction);
-                    switch (function) {
-                        store.SB => mem[dest_address] = @intCast(source_value),
-                        store.SH => {
-                            const val: u16 = @intCast(source_value);
-                            @memcpy(mem[dest_address .. dest_address + 2], &std.mem.toBytes(val));
-                        },
-                        store.SW => {
-                            const val: u32 = @intCast(source_value);
-                            @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
-                        },
-                        else => return error.InvalidFunction,
-                    }
-                    self.pc += INSTRUCTION_SIZE;
-                    return .cont;
-                },
-                .fence => return error.NotImplemented,
-                .system => {
-                    const function = funct3(instruction);
-                    switch (function) {
-                        system.ECALL_OR_EBREAK => {
-                            const ECALL = 0;
-                            const EBREAK = 1;
-                            switch (i_imm(instruction)) {
-                                ECALL => {
-                                    self.pc += INSTRUCTION_SIZE;
-                                    return .{ .system = self.registers[10] };
-                                },
-                                EBREAK => {
-                                    return error.NotImplemented;
-                                },
-                                else => return error.InvalidParameter,
-                            }
-                        },
-                        system.CSRRW => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register = rs1(instruction);
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            try self.set_csr(csr_address, source_value);
-                        },
-                        system.CSRRS => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register = rs1(instruction);
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            if (source_value != 0) {
-                                try self.set_csr(csr_address, csr_value | source_value);
-                            }
-                        },
-                        system.CSRRC => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register = rs1(instruction);
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            if (source_value != 0) {
-                                try self.set_csr(csr_address, csr_value & (~source_value));
-                            }
-                        },
-                        system.CSRRWI => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register: u32 = @intCast(rs1(instruction));
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            try self.set_csr(csr_address, source_value);
-                        },
-                        system.CSRRSI => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register: u32 = @intCast(rs1(instruction));
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            if (source_value != 0) {
-                                try self.set_csr(csr_address, csr_value | source_value);
-                            }
-                        },
-                        system.CSRRCI => {
-                            const csr_address: usize = csr(instruction);
-                            const csr_value = try self.get_csr(csr_address);
-                            const source_register: u32 = @intCast(rs1(instruction));
-                            const source_value = self.registers[source_register];
-                            const dest_register = rd(instruction);
-                            if (dest_register != 0) {
-                                self.set_register(dest_register, csr_value);
-                            }
-                            if (source_value != 0) {
-                                try self.set_csr(csr_address, csr_value & (~source_value));
-                            }
-                        },
-                        else => return error.InvalidFunction,
-                    }
-                    self.pc += INSTRUCTION_SIZE;
-                    return .cont;
-                },
+            };
+        }
+
+        pub fn step(self: *Cpu(cpu_kind), mem: []u8) !Step {
+            const instruction_size = @sizeOf(u32);
+            const instruction = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]);
+            if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
+                switch (op) {
+                    .op => return error.NotImplemented,
+                    .op_imm => {
+                        const function = funct3(instruction);
+                        switch (function) {
+                            op_imm.ADDI => {
+                                const source_register = rs1(instruction);
+                                const dest_register = rd(instruction);
+                                const immediate = i_imm(instruction);
+                                const source_value: IRegister = @intCast(self.registers[source_register]);
+                                const new_value = source_value + immediate;
+                                self.set_register(dest_register, @intCast(new_value));
+                            },
+                            else => return error.InvalidFunction,
+                        }
+                        self.pc += instruction_size;
+                        return .cont;
+                    },
+                    .jal => {
+                        const dest_register = rd(instruction);
+                        const imm_value = j_imm(instruction);
+                        const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
+                        self.set_register(dest_register, self.pc + register_size);
+                        self.pc = new_pc;
+                        if (self.pc & 0b11 != 0) {
+                            return error.UnalignedInstruction;
+                        }
+                        return .cont;
+                    },
+                    .jalr => {
+                        const source_register = rs1(instruction);
+                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                        const dest_register = rd(instruction);
+                        const imm_value = i_imm(instruction);
+                        const new_pc = @as(URegister, @intCast(source_value + imm_value)) & ~@as(URegister, 1);
+                        self.set_register(dest_register, self.pc + register_size);
+                        self.pc = new_pc;
+                        return .cont;
+                    },
+                    .lui => return error.NotImplemented,
+                    .auipc => return error.NotImplemented,
+                    .branch => {
+                        const source1_register = rs1(instruction);
+                        const source2_register = rs2(instruction);
+                        const offset = b_imm(instruction);
+                        const function = funct3(instruction);
+                        const cond = switch (function) {
+                            branch.BEQ => @as(IRegister, @intCast(self.registers[source1_register])) == @as(IRegister, @intCast(self.registers[source2_register])),
+                            branch.BNE => @as(IRegister, @intCast(self.registers[source1_register])) != @as(IRegister, @intCast(self.registers[source2_register])),
+                            branch.BLT => @as(IRegister, @intCast(self.registers[source1_register])) < @as(IRegister, @intCast(self.registers[source2_register])),
+                            branch.BGE => @as(IRegister, @intCast(self.registers[source1_register])) >= @as(IRegister, @intCast(self.registers[source2_register])),
+                            branch.BLTU => self.registers[source1_register] < self.registers[source2_register],
+                            branch.BGEU => self.registers[source1_register] >= self.registers[source2_register],
+                            else => return error.InvalidFunction,
+                        };
+                        if (cond) {
+                            self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                        } else {
+                            self.pc += instruction_size;
+                        }
+                        return .cont;
+                    },
+                    .load => {
+                        const source_register = rs1(instruction);
+                        const offset = i_imm(instruction);
+                        const dest_register = rd(instruction);
+                        const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[source_register])) + offset);
+                        const function = funct3(instruction);
+                        switch (function) {
+                            load.LB => self.set_register(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
+                            load.LH => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
+                            load.LW => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
+                            load.LBU => self.set_register(dest_register, @as(u8, @intCast(mem[source_address]))),
+                            load.LHU => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
+                            else => return error.InvalidFunction,
+                        }
+                        self.pc += instruction_size;
+                        return .cont;
+                    },
+                    .store => {
+                        const dest_register = rs1(instruction);
+                        const offset = s_imm(instruction);
+                        const dest_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[dest_register])) + offset);
+                        const source_value = self.registers[rs2(instruction)];
+                        const function = funct3(instruction);
+                        switch (function) {
+                            store.SB => mem[dest_address] = @intCast(source_value),
+                            store.SH => {
+                                const val: u16 = @intCast(source_value);
+                                @memcpy(mem[dest_address .. dest_address + 2], &std.mem.toBytes(val));
+                            },
+                            store.SW => {
+                                const val: u32 = @intCast(source_value);
+                                @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
+                            },
+                            else => return error.InvalidFunction,
+                        }
+                        self.pc += instruction_size;
+                        return .cont;
+                    },
+                    .fence => return error.NotImplemented,
+                    .system => {
+                        const function = funct3(instruction);
+                        switch (function) {
+                            system.ECALL_OR_EBREAK => {
+                                const ECALL = 0;
+                                const EBREAK = 1;
+                                switch (i_imm(instruction)) {
+                                    ECALL => {
+                                        self.pc += instruction_size;
+                                        return .{ .system = self.registers[10] };
+                                    },
+                                    EBREAK => {
+                                        return error.NotImplemented;
+                                    },
+                                    else => return error.InvalidParameter,
+                                }
+                            },
+                            system.CSRRW => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register = rs1(instruction);
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                try self.set_csr(csr_address, source_value);
+                            },
+                            system.CSRRS => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register = rs1(instruction);
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                if (source_value != 0) {
+                                    try self.set_csr(csr_address, csr_value | source_value);
+                                }
+                            },
+                            system.CSRRC => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register = rs1(instruction);
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                if (source_value != 0) {
+                                    try self.set_csr(csr_address, csr_value & (~source_value));
+                                }
+                            },
+                            system.CSRRWI => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register: URegister = @intCast(rs1(instruction));
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                try self.set_csr(csr_address, source_value);
+                            },
+                            system.CSRRSI => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register: URegister = @intCast(rs1(instruction));
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                if (source_value != 0) {
+                                    try self.set_csr(csr_address, csr_value | source_value);
+                                }
+                            },
+                            system.CSRRCI => {
+                                const csr_address: usize = csr(instruction);
+                                const csr_value = try self.get_csr(csr_address);
+                                const source_register: URegister = @intCast(rs1(instruction));
+                                const source_value = self.registers[source_register];
+                                const dest_register = rd(instruction);
+                                if (dest_register != 0) {
+                                    self.set_register(dest_register, csr_value);
+                                }
+                                if (source_value != 0) {
+                                    try self.set_csr(csr_address, csr_value & (~source_value));
+                                }
+                            },
+                            else => return error.InvalidFunction,
+                        }
+                        self.pc += instruction_size;
+                        return .cont;
+                    },
+                }
+            } else |_| {
+                return error.InvalidOpcode;
             }
-        } else |_| {
-            return error.InvalidOpcode;
         }
-    }
 
-    fn set_register(self: *Cpu, register: usize, value: u32) void {
-        if (register != 0) {
-            self.registers[register] = value;
+        fn set_register(self: *Cpu(cpu_kind), register: usize, value: URegister) void {
+            if (register != 0) {
+                self.registers[register] = value;
+            }
         }
-    }
 
-    fn get_csr(self: Cpu, address: usize) !u32 {
-        return switch (address) {
-            0x1 => self.csrs.test_register,
-            0xC00 => @intCast(self.csrs.rdcycle),
-            0xC80 => @intCast(self.csrs.rdcycle >> 32),
-            0xC01 => @intCast(self.csrs.rdtime),
-            0xC81 => @intCast(self.csrs.rdtime >> 32),
-            0xC02 => @intCast(self.csrs.instret),
-            0xC82 => @intCast(self.csrs.instret >> 32),
-            else => return error.InvalidCsrAddress,
-        };
-    }
-
-    fn set_csr(self: *Cpu, address: usize, value: u32) !void {
-        switch (address) {
-            0x1 => self.csrs.test_register = value,
-            else => return error.InvalidCsrAddress,
+        fn get_csr(self: Cpu(cpu_kind), address: usize) !URegister {
+            return switch (address) {
+                0x1 => self.csrs.test_register,
+                0xC00 => @intCast(self.csrs.rdcycle),
+                0xC80 => @intCast(self.csrs.rdcycle >> 32),
+                0xC01 => @intCast(self.csrs.rdtime),
+                0xC81 => @intCast(self.csrs.rdtime >> 32),
+                0xC02 => @intCast(self.csrs.instret),
+                0xC82 => @intCast(self.csrs.instret >> 32),
+                else => return error.InvalidCsrAddress,
+            };
         }
-    }
-};
+
+        fn set_csr(self: *Cpu(cpu_kind), address: usize, value: URegister) !void {
+            switch (address) {
+                0x1 => self.csrs.test_register = value,
+                else => return error.InvalidCsrAddress,
+            }
+        }
+    };
+}
 
 // funct3
 

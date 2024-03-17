@@ -75,6 +75,26 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             const imm_value = ci_imm(instruction);
                             self.set_register(dest_register, @intCast(imm_value));
                         },
+                        // srli, srai, andi
+                        0b100 => {
+                            const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
+                            switch (bits_11_to_10) {
+                                // srli
+                                0b00 => return error.NotImplemented,
+                                // srai
+                                0b01 => {
+                                    const register = rd_16(instruction);
+                                    const uimm_value = try ci_uimm5(instruction);
+                                    const source_value = self.registers[register];
+                                    const new_value = source_value >> uimm_value;
+                                    self.set_register(register, new_value);
+                                },
+                                // andi
+                                0b10 => return error.NotImplemented,
+                                else => return error.InvalidFunction,
+                            }
+                            return .cont;
+                        },
                         else => return error.InvalidFunction,
                     }
                     return .cont;
@@ -499,6 +519,15 @@ fn ci_imm(instruction: u16) i16 {
     const bit_5 = extract_16(instruction, 11, 0b1) << 5;
     const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
     return sign_extend_16(bit_5 | bits_4_to_0, 6, sign_bit);
+}
+
+fn ci_uimm5(instruction: u16) !u5 {
+    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
+    if (bit_5 != 0) {
+        return error.Expected0Bit;
+    }
+    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
+    return @intCast(bits_4_to_0);
 }
 
 fn cj_imm(instruction: u16) i16 {

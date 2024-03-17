@@ -279,6 +279,38 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
     };
 }
 
+// op codes
+
+pub const OpCode = enum(u32) {
+    op = 0b01_100_11,
+    op_imm = 0b00_100_11,
+    jal = 0b11_011_11,
+    jalr = 0b11_001_11,
+    lui = 0b01_101_11,
+    auipc = 0b00_101_11,
+    branch = 0b11_000_11,
+    load = 0b00_000_11,
+    store = 0b01_000_11,
+    fence = 0b00_011_11,
+    system = 0b11_100_11,
+};
+
+// decoder
+
+const SIGN_BIT: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+const C_11_BITS: u32 = 0b111_1111_1111;
+const C_10_BITS: u32 = 0b11_1111_1111;
+const C_8_BITS: u32 = 0b1111_1111;
+const C_7_BITS: u32 = 0b111_1111;
+const C_6_BITS: u32 = 0b11_1111;
+const C_5_BITS: u32 = 0b1_1111;
+const C_4_BITS: u32 = 0b1111;
+const C_3_BITS: u32 = 0b111;
+
+fn extract(value: u32, shift: u5, mask: u32) u32 {
+    return (value >> shift) & mask;
+}
+
 // funct3
 
 const op_imm = struct {
@@ -388,41 +420,3 @@ fn j_imm(instruction: u32) i32 {
     const bits_12_to_19 = extract(instruction, 12, C_8_BITS) << 12;
     return sign_extend_32(bits_12_to_19 | bit_11 | bits_10_to_1, 20, sign_bit);
 }
-
-// decoder
-
-const SIGN_BIT: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
-const C_11_BITS: u32 = 0b111_1111_1111;
-const C_10_BITS: u32 = 0b11_1111_1111;
-const C_8_BITS: u32 = 0b1111_1111;
-const C_7_BITS: u32 = 0b111_1111;
-const C_6_BITS: u32 = 0b11_1111;
-const C_5_BITS: u32 = 0b1_1111;
-const C_4_BITS: u32 = 0b1111;
-const C_3_BITS: u32 = 0b111;
-
-fn extract(value: u32, shift: u5, mask: u32) u32 {
-    return (value >> shift) & mask;
-}
-
-// op codes
-
-fn opcodeValue(col: u8, row: u8) u32 {
-    const col_shifted = (col & 0b111) << 2;
-    const row_shifted = (row & 0b11) << 5;
-    return (col_shifted | row_shifted | 0b11);
-}
-
-pub const OpCode = enum(u32) {
-    op = opcodeValue(0b100, 0b01),
-    op_imm = opcodeValue(0b100, 0b00),
-    jal = opcodeValue(0b011, 0b11),
-    jalr = opcodeValue(0b001, 0b11),
-    lui = opcodeValue(0b101, 0b01),
-    auipc = opcodeValue(0b101, 0b00),
-    branch = opcodeValue(0b000, 0b11),
-    load = opcodeValue(0b000, 0b00),
-    store = opcodeValue(0b000, 0b01),
-    fence = opcodeValue(0b011, 0b00),
-    system = opcodeValue(0b100, 0b11),
-};

@@ -54,7 +54,15 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                     if (std.meta.intToEnum(OpCode16, opcode_16(instruction))) |op| {
                         switch (op) {
-                            .jalr => {
+                            .addi => {
+                                const register = rd_16(instruction);
+                                const immediate = imm_16(instruction);
+                                const source_value: IRegister = @intCast(self.registers[register]);
+                                const new_value = source_value + immediate;
+                                self.set_register(register, @intCast(new_value));
+                                return .cont;
+                            },
+                            .jr => {
                                 const source_register = rs1_16(instruction);
                                 self.pc = self.registers[source_register];
                                 return .cont;
@@ -319,12 +327,14 @@ pub const OpCode32 = enum(u32) {
 };
 
 pub const OpCode16 = enum(u16) {
-    jalr = 0b100_00000000000_10,
+    addi = 0b000_00000000000_01,
+    jr = 0b100_00000000000_10,
 };
 
 // decoder
 
 const SIGN_BIT_32: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+const SIGN_BIT_16: u32 = 0b1000_0000_0000_0000;
 const C_11_BITS: u32 = 0b111_1111_1111;
 const C_10_BITS: u32 = 0b11_1111_1111;
 const C_8_BITS: u32 = 0b1111_1111;
@@ -401,6 +411,10 @@ fn rd_32(instruction: u32) usize {
     return extract_32(instruction, 7, C_5_BITS);
 }
 
+fn rd_16(instruction: u16) usize {
+    return extract_32(instruction, 7, C_5_BITS);
+}
+
 fn rs1_32(instruction: u32) usize {
     return extract_32(instruction, 15, C_5_BITS);
 }
@@ -427,6 +441,13 @@ fn csr_32(instruction: u32) u32 {
 
 fn sign_extend_32(raw_value: u32, bits: u5, sign_bit: bool) i32 {
     const bit_mask = (@as(u32, 1) << bits) - 1;
+    const sign_mask = ~bit_mask;
+    const extension = if (sign_bit) sign_mask else 0;
+    return @bitCast((raw_value & bit_mask) | extension);
+}
+
+fn sign_extend_16(raw_value: u16, bits: u4, sign_bit: bool) i16 {
+    const bit_mask = (@as(u16, 1) << bits) - 1;
     const sign_mask = ~bit_mask;
     const extension = if (sign_bit) sign_mask else 0;
     return @bitCast((raw_value & bit_mask) | extension);
@@ -459,4 +480,11 @@ fn j_imm_32(instruction: u32) i32 {
     const bits_10_to_1 = extract_32(instruction, 21, C_10_BITS) << 1;
     const bits_12_to_19 = extract_32(instruction, 12, C_8_BITS) << 12;
     return sign_extend_32(bits_12_to_19 | bit_11 | bits_10_to_1, 20, sign_bit);
+}
+
+fn imm_16(instruction: u16) i16 {
+    const sign_bit = instruction & SIGN_BIT_16 != 0;
+    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
+    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
+    return sign_extend_16(bit_5 | bits_4_to_0, 6, sign_bit);
 }

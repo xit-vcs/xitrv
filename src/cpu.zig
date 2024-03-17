@@ -46,12 +46,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
         pub fn step(self: *Cpu(cpu_kind), mem: []u8) !Step {
             const next_byte = mem[self.pc];
-
-            const next_bits_4_2: u3 = @intCast((next_byte >> 2) & 0b111);
-            if (next_bits_4_2 == 0b111) {
-                return error.InstructionSizeNotSupported;
-            }
-
             const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
             switch (next_bits_1_0) {
                 0b00, 0b01, 0b10 => {

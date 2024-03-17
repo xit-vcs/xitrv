@@ -72,3 +72,30 @@ test "inc" {
     }
     try std.testing.expectEqual(43, cpu.registers[10]);
 }
+
+test "recur" {
+    const allocator = std.testing.allocator;
+    const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
+    defer test_file.close();
+    var elf = try Elf.init(allocator, test_file.reader());
+    defer elf.deinit();
+
+    const func_symbol = elf.name_to_dynsym.get("recur") orelse return error.SymbolNotFound;
+    const section = elf.sections.items[func_symbol.shndx];
+    const func_offset = func_symbol.value - section.addr;
+
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    defer mem.deinit();
+    mem.expandToCapacity();
+
+    @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
+
+    var cpu = Cpu(.rv64).init();
+    cpu.pc = func_offset;
+    cpu.registers[10] = 1;
+    while (true) {
+        const pc = cpu.pc;
+        _ = try cpu.step(mem.items);
+        if (cpu.pc <= pc) break;
+    }
+}

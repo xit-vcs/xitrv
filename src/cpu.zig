@@ -61,6 +61,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             const source_value: IRegister = @intCast(self.registers[register]);
                             const new_value = source_value + imm_value;
                             self.set_register(register, @intCast(new_value));
+                            self.pc += instruction_size;
                         },
                         // jal
                         0b001 => {
@@ -74,26 +75,51 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             const dest_register = rd_16(instruction);
                             const imm_value = ci_imm(instruction);
                             self.set_register(dest_register, @intCast(imm_value));
+                            self.pc += instruction_size;
                         },
                         // srli, srai, andi
                         0b100 => {
                             const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
                             switch (bits_11_to_10) {
                                 // srli
-                                0b00 => return error.NotImplemented,
+                                0b00 => {
+                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                    const uimm_value = try ci_uimm5(instruction);
+                                    const source_value = self.registers[rd_register];
+                                    const new_value = source_value << uimm_value;
+                                    self.set_register(rd_register, new_value);
+                                },
                                 // srai
                                 0b01 => {
-                                    const register = rd_16(instruction);
-                                    const uimm_value = try ci_uimm5(instruction);
-                                    const source_value = self.registers[register];
-                                    const new_value = source_value >> uimm_value;
-                                    self.set_register(register, new_value);
+                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                    const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                    const source_value = self.registers[rd_register];
+                                    const new_value = source_value - self.registers[rs2_register];
+                                    self.set_register(rd_register, new_value);
                                 },
                                 // andi
                                 0b10 => return error.NotImplemented,
-                                else => return error.InvalidFunction,
+                                // and
+                                0b11 => {
+                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                    const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                    const source_value = self.registers[rd_register];
+                                    const new_value = source_value & self.registers[rs2_register];
+                                    self.set_register(rd_register, new_value);
+                                },
                             }
+                            self.pc += instruction_size;
                             return .cont;
+                        },
+                        // beqz
+                        0b110 => {
+                            const source_register = (instruction >> 7) & 0b111;
+                            const offset = cb_imm(instruction);
+                            if (self.registers[source_register] == 0) {
+                                self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                            } else {
+                                self.pc += instruction_size;
+                            }
                         },
                         else => return error.InvalidFunction,
                     }
@@ -118,9 +144,40 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     const instruction_size = @sizeOf(u32);
                     const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
 
-                    if (std.meta.intToEnum(OpCode, opcode_32(instruction))) |op| {
-                        switch (op) {
-                            .op => return error.NotImplemented,
+                    if (std.meta.intToEnum(OpCode, opcode_32(instruction))) |opcode| {
+                        switch (opcode) {
+                            .op => {
+                                const function = funct7_32(instruction);
+                                switch (function) {
+                                    op.ADD => {
+                                        const source1_register = rs1_32(instruction);
+                                        const source1_value = self.registers[source1_register];
+                                        const source2_register = rs2_32(instruction);
+                                        const source2_value = self.registers[source2_register];
+                                        const dest_register = rd_32(instruction);
+                                        self.set_register(dest_register, source1_value +| source2_value);
+                                    },
+                                    op.SUB => {
+                                        const source1_register = rs1_32(instruction);
+                                        const source1_value = self.registers[source1_register];
+                                        const source2_register = rs2_32(instruction);
+                                        const source2_value = self.registers[source2_register];
+                                        const dest_register = rd_32(instruction);
+                                        self.set_register(dest_register, source1_value -| source2_value);
+                                    },
+                                    op.MUL => {
+                                        const source1_register = rs1_32(instruction);
+                                        const source1_value = self.registers[source1_register];
+                                        const source2_register = rs2_32(instruction);
+                                        const source2_value = self.registers[source2_register];
+                                        const dest_register = rd_32(instruction);
+                                        self.set_register(dest_register, source1_value * source2_value);
+                                    },
+                                    else => return error.InvalidFunction,
+                                }
+                                self.pc += instruction_size;
+                                return .cont;
+                            },
                             .op_imm => {
                                 const function = funct3_32(instruction);
                                 switch (function) {
@@ -130,6 +187,22 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const imm_value = i_imm_32(instruction);
                                         const source_value: IRegister = @intCast(self.registers[source_register]);
                                         const new_value = source_value + imm_value;
+                                        self.set_register(dest_register, @intCast(new_value));
+                                    },
+                                    op_imm.SLTIU => {
+                                        const source_register = rs1_32(instruction);
+                                        const dest_register = rd_32(instruction);
+                                        const imm_value = i_imm_32(instruction);
+                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const new_value: u32 = if (source_value < imm_value) 1 else 0;
+                                        self.set_register(dest_register, new_value);
+                                    },
+                                    op_imm.ANDI => {
+                                        const source_register = rs1_32(instruction);
+                                        const dest_register = rd_32(instruction);
+                                        const imm_value = i_imm_32(instruction);
+                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const new_value = source_value & imm_value;
                                         self.set_register(dest_register, @intCast(new_value));
                                     },
                                     else => return error.InvalidFunction,
@@ -387,6 +460,13 @@ fn extract_16(value: u16, shift: u4, mask: u16) u16 {
     return (value >> shift) & mask;
 }
 
+const op = struct {
+    const ADD: u8 = 0b00000_00;
+    const SUB: u8 = 0b01000_00;
+    // M extension
+    const MUL: u8 = 0b00000_01;
+};
+
 const op_imm = struct {
     const ADDI: u8 = 0b000;
     const SLLI: u8 = 0b001;
@@ -455,12 +535,12 @@ fn rs2_32(instruction: u32) usize {
     return extract_32(instruction, 20, C_5_BITS);
 }
 
-fn funct3_32(instruction: u32) u8 {
-    return @truncate(extract_32(instruction, 12, C_3_BITS));
+fn funct3_16(instruction: u16) u8 {
+    return @truncate(extract_16(instruction, 13, C_3_BITS));
 }
 
-fn funct3_16(instruction: u16) u8 {
-    return @truncate(extract_16(instruction, 12, C_3_BITS));
+fn funct3_32(instruction: u32) u8 {
+    return @truncate(extract_32(instruction, 12, C_3_BITS));
 }
 
 fn funct7_32(instruction: u32) u8 {
@@ -499,7 +579,7 @@ fn s_imm_32(instruction: u32) i32 {
 }
 
 fn b_imm_32(instruction: u32) i32 {
-    const sign_bit = instruction & SIGN_BIT_32 != 0;
+    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
     const bit_11 = extract_32(instruction, 7, 0b1) << 11;
     const bits_10_to_5 = extract_32(instruction, 25, C_6_BITS) << 5;
     const bits_4_to_1 = extract_32(instruction, 8, C_4_BITS) << 1;
@@ -507,7 +587,7 @@ fn b_imm_32(instruction: u32) i32 {
 }
 
 fn j_imm_32(instruction: u32) i32 {
-    const sign_bit = instruction & SIGN_BIT_32 != 0;
+    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
     const bit_11 = extract_32(instruction, 20, 0b1) << 11;
     const bits_10_to_1 = extract_32(instruction, 21, C_10_BITS) << 1;
     const bits_12_to_19 = extract_32(instruction, 12, C_8_BITS) << 12;
@@ -515,10 +595,9 @@ fn j_imm_32(instruction: u32) i32 {
 }
 
 fn ci_imm(instruction: u16) i16 {
-    const sign_bit = instruction & SIGN_BIT_16 != 0;
-    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
+    const sign_bit = extract_16(instruction, 11, 0b1) != 0;
     const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
-    return sign_extend_16(bit_5 | bits_4_to_0, 6, sign_bit);
+    return sign_extend_16(bits_4_to_0, 6, sign_bit);
 }
 
 fn ci_uimm5(instruction: u16) !u5 {
@@ -531,7 +610,14 @@ fn ci_uimm5(instruction: u16) !u5 {
 }
 
 fn cj_imm(instruction: u16) i16 {
-    const sign_bit = instruction & SIGN_BIT_16 != 0;
-    const bits_11_to_1 = extract_16(instruction, 2, C_11_BITS) << 1;
-    return sign_extend_16(bits_11_to_1, 11, sign_bit);
+    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
+    const bits_10_to_1 = extract_16(instruction, 2, C_10_BITS) << 1;
+    return sign_extend_16(bits_10_to_1, 12, sign_bit);
+}
+
+fn cb_imm(instruction: u16) i16 {
+    const sign_bit = extract_16(instruction, 8, 0b1) != 0;
+    const bits_7_to_6 = extract_16(instruction, 10, 0b11);
+    const bits_5_to_1 = extract_16(instruction, 2, C_5_BITS);
+    return sign_extend_16(bits_7_to_6 | bits_5_to_1, 9, sign_bit);
 }

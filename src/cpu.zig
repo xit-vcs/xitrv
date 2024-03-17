@@ -45,8 +45,25 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
         }
 
         pub fn step(self: *Cpu(cpu_kind), mem: []u8) !Step {
-            const instruction_size = @sizeOf(u32);
-            const instruction = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]);
+            const next_byte = mem[self.pc];
+            const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
+            const next_bits_4_2: u3 = @intCast((next_byte >> 2) & 0b111);
+
+            const instruction: u32, const instruction_size: usize = if (next_bits_4_2 == 0b111)
+                return error.InstructionSizeNotSupported
+            else switch (next_bits_1_0) {
+                0b00, 0b01, 0b10 => blk: {
+                    const instruction_size = @sizeOf(u16);
+                    const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
+                    break :blk .{ instruction, instruction_size };
+                },
+                0b11 => blk: {
+                    const instruction_size = @sizeOf(u32);
+                    const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
+                    break :blk .{ instruction, instruction_size };
+                },
+            };
+
             if (std.meta.intToEnum(OpCode, opcode(instruction))) |op| {
                 switch (op) {
                     .op => return error.NotImplemented,

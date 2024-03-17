@@ -49,7 +49,7 @@ pub const Symbol = struct {
         hidden,
         protected,
     },
-    name_idx: u32,
+    name_off: u32,
     name_str: []const u8,
     shndx: u16,
     value: u64,
@@ -89,7 +89,7 @@ pub const Symbol = struct {
                 3 => .protected,
                 else => return error.InvalidSymbolVisibility,
             },
-            .name_idx = entry_name,
+            .name_off = entry_name,
             .name_str = undefined,
             .shndx = try reader.readInt(u16, endian),
             .value = try reader.readInt(u64, endian),
@@ -431,9 +431,9 @@ pub const Elf = struct {
 
         // set name_str for sections and symbols
         const section_offset_to_string = &sections.items[shstrndx].kind.strtab.offset_to_string;
-        const program_strings = for (sections.items, 0..) |section, i| {
+        const program_offset_to_string = for (sections.items, 0..) |section, i| {
             if (section.kind == .strtab and i != shstrndx) {
-                break section.kind.strtab.offset_to_string.values();
+                break &section.kind.strtab.offset_to_string;
             }
         } else {
             return error.ProgramStringsNotFound;
@@ -442,11 +442,7 @@ pub const Elf = struct {
             section.name_str = section_offset_to_string.get(section.name_off) orelse return error.SectionStringNotFound;
             if (section.kind == .dynsym) {
                 for (section.kind.dynsym.symbols.items) |*symbol| {
-                    if (symbol.name_idx < program_strings.len) {
-                        symbol.name_str = program_strings[symbol.name_idx];
-                    } else {
-                        return error.ProgramStringNotFound;
-                    }
+                    symbol.name_str = program_offset_to_string.get(symbol.name_off) orelse return error.ProgramStringNotFound;
                 }
             }
         }

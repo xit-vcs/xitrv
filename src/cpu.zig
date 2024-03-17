@@ -319,7 +319,7 @@ pub const OpCode32 = enum(u32) {
 };
 
 pub const OpCode16 = enum(u16) {
-    jalr = 0b00000_10,
+    jalr = 0b100_00000000000_10,
 };
 
 // decoder
@@ -333,6 +333,7 @@ const C_6_BITS: u32 = 0b11_1111;
 const C_5_BITS: u32 = 0b1_1111;
 const C_4_BITS: u32 = 0b1111;
 const C_3_BITS: u32 = 0b111;
+const COMPRESSED_BITS: u16 = 0b111_00000000000_11;
 
 fn extract_32(value: u32, shift: u5, mask: u32) u32 {
     return (value >> shift) & mask;
@@ -393,7 +394,7 @@ fn opcode_32(instruction: u32) usize {
 }
 
 fn opcode_16(instruction: u16) usize {
-    return extract_16(instruction, 0, C_7_BITS);
+    return extract_16(instruction, 0, COMPRESSED_BITS);
 }
 
 fn rd_32(instruction: u32) usize {

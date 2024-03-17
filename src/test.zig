@@ -42,7 +42,32 @@ test "parse elf" {
     defer elf.deinit();
 
     const start_symbol = elf.name_to_dynsym.get("start") orelse return error.StartSymbolNotFound;
-    const progbits_section = elf.sections.items[start_symbol.shndx];
-    const start_offset = start_symbol.value - progbits_section.addr;
-    try std.testing.expectEqual(0, start_offset);
+    const section = elf.sections.items[start_symbol.shndx];
+    const start_offset = start_symbol.value - section.addr;
+
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    defer mem.deinit();
+    mem.expandToCapacity();
+
+    @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
+
+    var cpu = Cpu(.rv64).init();
+    cpu.pc = start_offset;
+    while (true) {
+        const step = try cpu.step(mem.items);
+        switch (step) {
+            .cont => {
+                if (cpu.pc == start_offset) {
+                    break;
+                }
+            },
+            .exit => break,
+            .system => {
+                switch (step.system) {
+                    else => return error.InvalidEcall,
+                }
+            },
+        }
+    }
+    try std.testing.expectEqual(42, cpu.registers[10]);
 }

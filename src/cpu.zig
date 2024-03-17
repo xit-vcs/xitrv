@@ -60,7 +60,11 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                     if (std.meta.intToEnum(OpCode16, opcode_16(instruction))) |op| {
                         switch (op) {
-                            .jalr => return error.NotImplemented,
+                            .jalr => {
+                                const source_register = rs1_16(instruction);
+                                self.pc = self.registers[source_register];
+                                return .cont;
+                            },
                         }
                     } else |_| {
                         return error.InvalidOpcode16;
@@ -404,6 +408,10 @@ fn rd_32(instruction: u32) usize {
 
 fn rs1_32(instruction: u32) usize {
     return extract_32(instruction, 15, C_5_BITS);
+}
+
+fn rs1_16(instruction: u16) usize {
+    return extract_16(instruction, 7, C_5_BITS);
 }
 
 fn rs2_32(instruction: u32) usize {

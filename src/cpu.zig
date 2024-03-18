@@ -84,7 +84,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 // srli
                                 0b00 => {
                                     const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                    const uimm_value = try ci_uimm5(instruction);
+                                    const uimm_value = try ci_uimm_5(instruction);
                                     const source_value = self.registers[rd_register];
                                     const new_value = source_value << uimm_value;
                                     self.set_register(rd_register, new_value);
@@ -101,11 +101,26 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 0b10 => return error.NotImplemented,
                                 // and
                                 0b11 => {
-                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                    const rs2_register = 8 + ((instruction >> 2) & 0b111);
-                                    const source_value = self.registers[rd_register];
-                                    const new_value = source_value & self.registers[rs2_register];
-                                    self.set_register(rd_register, new_value);
+                                    const bits_6_to_5: u2 = @intCast((instruction >> 5) & 0b11);
+                                    switch (bits_6_to_5) {
+                                        // sub
+                                        0b00 => {
+                                            const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                            const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                            const source_value = self.registers[rd_register];
+                                            const new_value = source_value -| self.registers[rs2_register];
+                                            self.set_register(rd_register, new_value);
+                                        },
+                                        // and
+                                        0b11 => {
+                                            const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                            const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                            const source_value = self.registers[rd_register];
+                                            const new_value = source_value & self.registers[rs2_register];
+                                            self.set_register(rd_register, new_value);
+                                        },
+                                        else => return error.InvalidFunction,
+                                    }
                                 },
                             }
                             self.pc += instruction_size;
@@ -131,10 +146,21 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                     const function = funct3_16(instruction);
                     switch (function) {
-                        // jr
                         0b100 => {
-                            const source_register = rs1_16(instruction);
-                            self.pc = self.registers[source_register];
+                            const bit_12 = (instruction >> 12) & 0b1;
+                            if (bit_12 == 0) {
+                                // jr
+                                const source_register = rs1_16(instruction);
+                                self.pc = self.registers[source_register];
+                            } else {
+                                // add
+                                const rd_register = rd_16(instruction);
+                                const rs2_register = rs2_16(instruction);
+                                const source_value = self.registers[rd_register];
+                                const new_value = source_value +| self.registers[rs2_register];
+                                self.set_register(rd_register, new_value);
+                                self.pc += instruction_size;
+                            }
                         },
                         else => return error.InvalidFunction,
                     }
@@ -187,6 +213,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const imm_value = i_imm_32(instruction);
                                         const source_value: IRegister = @intCast(self.registers[source_register]);
                                         const new_value = source_value + imm_value;
+                                        self.set_register(dest_register, @intCast(new_value));
+                                    },
+                                    op_imm.SLLI => {
+                                        const source_register = rs1_32(instruction);
+                                        const dest_register = rd_32(instruction);
+                                        const imm_value = i_uimm_5(instruction);
+                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const new_value = source_value << imm_value;
                                         self.set_register(dest_register, @intCast(new_value));
                                     },
                                     op_imm.SLTIU => {
@@ -535,6 +569,10 @@ fn rs2_32(instruction: u32) usize {
     return extract_32(instruction, 20, C_5_BITS);
 }
 
+fn rs2_16(instruction: u16) usize {
+    return extract_16(instruction, 2, C_5_BITS);
+}
+
 fn funct3_16(instruction: u16) u8 {
     return @truncate(extract_16(instruction, 13, C_3_BITS));
 }
@@ -571,6 +609,11 @@ fn i_imm_32(instruction: u32) i32 {
     return sign_extend_32(raw_value, 11, sign_bit);
 }
 
+fn i_uimm_5(instruction: u32) u5 {
+    const raw_value = extract_32(instruction, 20, C_5_BITS);
+    return @intCast(raw_value);
+}
+
 fn s_imm_32(instruction: u32) i32 {
     const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
     const upper_6_bits = extract_32(instruction, 25, C_6_BITS) << 5;
@@ -600,7 +643,7 @@ fn ci_imm(instruction: u16) i16 {
     return sign_extend_16(bits_4_to_0, 6, sign_bit);
 }
 
-fn ci_uimm5(instruction: u16) !u5 {
+fn ci_uimm_5(instruction: u16) !u5 {
     const bit_5 = extract_16(instruction, 11, 0b1) << 5;
     if (bit_5 != 0) {
         return error.Expected0Bit;

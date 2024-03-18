@@ -94,8 +94,19 @@ test "recur" {
     cpu.pc = func_offset;
     cpu.registers[10] = 1;
     while (true) {
-        const pc = cpu.pc;
-        _ = try cpu.step(mem.items);
-        if (cpu.pc <= pc) break;
+        const step = try cpu.step(mem.items);
+        switch (step) {
+            .cont => {
+                if (cpu.registers[10] >= 10) {
+                    break;
+                }
+            },
+            .exit => break,
+            .system => {
+                switch (step.system) {
+                    else => return error.InvalidEcall,
+                }
+            },
+        }
     }
 }

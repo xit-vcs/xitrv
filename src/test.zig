@@ -53,6 +53,7 @@ test "inc" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
+    cpu.registers[1] = func_offset;
     cpu.registers[10] = 42;
     while (true) {
         const step = try cpu.step(mem.items);
@@ -92,6 +93,7 @@ test "recur" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
+    cpu.registers[1] = func_offset;
     cpu.registers[10] = 1;
     while (true) {
         const step = try cpu.step(mem.items);

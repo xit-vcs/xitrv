@@ -48,18 +48,19 @@ test "inc" {
     var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer mem.deinit();
     mem.expandToCapacity();
+    const invalid_address = mem.capacity;
 
     @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[1] = func_offset;
+    cpu.registers[1] = invalid_address;
     cpu.registers[10] = 42;
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {
             .cont => {
-                if (cpu.pc == func_offset) {
+                if (cpu.pc == invalid_address) {
                     break;
                 }
             },
@@ -88,18 +89,19 @@ test "recur" {
     var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer mem.deinit();
     mem.expandToCapacity();
+    const invalid_address = mem.capacity;
 
     @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[1] = func_offset;
+    cpu.registers[1] = invalid_address;
     cpu.registers[10] = 1;
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {
             .cont => {
-                if (cpu.registers[10] >= 10) {
+                if (cpu.pc == invalid_address) {
                     break;
                 }
             },
@@ -111,4 +113,5 @@ test "recur" {
             },
         }
     }
+    try std.testing.expectEqual(10, cpu.registers[10]);
 }

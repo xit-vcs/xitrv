@@ -58,9 +58,9 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         0b000 => {
                             const register = rd_16(instruction);
                             const imm_value = ci_imm(instruction);
-                            const source_value: IRegister = @intCast(self.registers[register]);
+                            const source_value: IRegister = @bitCast(self.registers[register]);
                             const new_value = source_value + imm_value;
-                            self.set_register(register, @intCast(new_value));
+                            self.set_register(register, @bitCast(new_value));
                             self.pc += instruction_size;
                         },
                         // jal
@@ -86,20 +86,20 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     const rd_register = 8 + ((instruction >> 7) & 0b111);
                                     const uimm_value = try ci_uimm_5(instruction);
                                     const source_value = self.registers[rd_register];
-                                    const new_value = source_value << uimm_value;
+                                    const new_value = source_value >> uimm_value;
                                     self.set_register(rd_register, new_value);
                                 },
                                 // srai
                                 0b01 => {
                                     const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                    const rs2_register = 8 + ((instruction >> 2) & 0b111);
-                                    const source_value = self.registers[rd_register];
-                                    const new_value = source_value - self.registers[rs2_register];
-                                    self.set_register(rd_register, new_value);
+                                    const uimm_value = try ci_uimm_5(instruction);
+                                    const source_value: IRegister = @intCast(self.registers[rd_register]);
+                                    const new_value = source_value >> uimm_value;
+                                    self.set_register(rd_register, @intCast(new_value));
                                 },
                                 // andi
                                 0b10 => return error.NotImplemented,
-                                // and
+                                // sub, and
                                 0b11 => {
                                     const bits_6_to_5: u2 = @intCast((instruction >> 5) & 0b11);
                                     switch (bits_6_to_5) {
@@ -108,7 +108,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             const rd_register = 8 + ((instruction >> 7) & 0b111);
                                             const rs2_register = 8 + ((instruction >> 2) & 0b111);
                                             const source_value = self.registers[rd_register];
-                                            const new_value = source_value -| self.registers[rs2_register];
+                                            const new_value = @subWithOverflow(source_value, self.registers[rs2_register])[0];
                                             self.set_register(rd_register, new_value);
                                         },
                                         // and
@@ -157,7 +157,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const rd_register = rd_16(instruction);
                                 const rs2_register = rs2_16(instruction);
                                 const source_value = self.registers[rd_register];
-                                const new_value = source_value +| self.registers[rs2_register];
+                                const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
                                 self.set_register(rd_register, new_value);
                                 self.pc += instruction_size;
                             }
@@ -181,7 +181,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const source2_register = rs2_32(instruction);
                                         const source2_value = self.registers[source2_register];
                                         const dest_register = rd_32(instruction);
-                                        self.set_register(dest_register, source1_value +| source2_value);
+                                        const new_value = @addWithOverflow(source1_value, source2_value)[0];
+                                        self.set_register(dest_register, new_value);
                                     },
                                     op.SUB => {
                                         const source1_register = rs1_32(instruction);
@@ -189,15 +190,32 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const source2_register = rs2_32(instruction);
                                         const source2_value = self.registers[source2_register];
                                         const dest_register = rd_32(instruction);
-                                        self.set_register(dest_register, source1_value -| source2_value);
+                                        const new_value = @subWithOverflow(source1_value, source2_value)[0];
+                                        self.set_register(dest_register, new_value);
                                     },
-                                    op.MUL => {
-                                        const source1_register = rs1_32(instruction);
-                                        const source1_value = self.registers[source1_register];
-                                        const source2_register = rs2_32(instruction);
-                                        const source2_value = self.registers[source2_register];
-                                        const dest_register = rd_32(instruction);
-                                        self.set_register(dest_register, source1_value * source2_value);
+                                    op.M_EXT => {
+                                        const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
+                                        switch (bits_14_to_12) {
+                                            m_ext.MUL => {
+                                                const source1_register = rs1_32(instruction);
+                                                const source1_value = self.registers[source1_register];
+                                                const source2_register = rs2_32(instruction);
+                                                const source2_value = self.registers[source2_register];
+                                                const dest_register = rd_32(instruction);
+                                                const new_value = @mulWithOverflow(source1_value, source2_value)[0];
+                                                self.set_register(dest_register, new_value);
+                                            },
+                                            m_ext.DIVU => {
+                                                const source1_register = rs1_32(instruction);
+                                                const source1_value = self.registers[source1_register];
+                                                const source2_register = rs2_32(instruction);
+                                                const source2_value = self.registers[source2_register];
+                                                const dest_register = rd_32(instruction);
+                                                const new_value = source1_value / source2_value;
+                                                self.set_register(dest_register, new_value);
+                                            },
+                                            else => return error.InvalidFunction,
+                                        }
                                     },
                                     else => return error.InvalidFunction,
                                 }
@@ -211,23 +229,23 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const source_register = rs1_32(instruction);
                                         const dest_register = rd_32(instruction);
                                         const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
                                         const new_value = source_value + imm_value;
-                                        self.set_register(dest_register, @intCast(new_value));
+                                        self.set_register(dest_register, @bitCast(new_value));
                                     },
                                     op_imm.SLLI => {
                                         const source_register = rs1_32(instruction);
                                         const dest_register = rd_32(instruction);
                                         const imm_value = i_uimm_5(instruction);
-                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
                                         const new_value = source_value << imm_value;
-                                        self.set_register(dest_register, @intCast(new_value));
+                                        self.set_register(dest_register, @bitCast(new_value));
                                     },
                                     op_imm.SLTIU => {
                                         const source_register = rs1_32(instruction);
                                         const dest_register = rd_32(instruction);
                                         const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
                                         const new_value: u32 = if (source_value < imm_value) 1 else 0;
                                         self.set_register(dest_register, new_value);
                                     },
@@ -235,9 +253,9 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         const source_register = rs1_32(instruction);
                                         const dest_register = rd_32(instruction);
                                         const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @intCast(self.registers[source_register]);
+                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
                                         const new_value = source_value & imm_value;
-                                        self.set_register(dest_register, @intCast(new_value));
+                                        self.set_register(dest_register, @bitCast(new_value));
                                     },
                                     else => return error.InvalidFunction,
                                 }
@@ -257,7 +275,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             },
                             .jalr => {
                                 const source_register = rs1_32(instruction);
-                                const source_value: IRegister = @intCast(self.registers[source_register]);
+                                const source_value: IRegister = @bitCast(self.registers[source_register]);
                                 const dest_register = rd_32(instruction);
                                 const imm_value = i_imm_32(instruction);
                                 const new_pc = @as(URegister, @intCast(source_value + imm_value)) & ~@as(URegister, 1);
@@ -273,10 +291,10 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const offset = b_imm_32(instruction);
                                 const function = funct3_32(instruction);
                                 const cond = switch (function) {
-                                    branch.BEQ => @as(IRegister, @intCast(self.registers[source1_register])) == @as(IRegister, @intCast(self.registers[source2_register])),
-                                    branch.BNE => @as(IRegister, @intCast(self.registers[source1_register])) != @as(IRegister, @intCast(self.registers[source2_register])),
-                                    branch.BLT => @as(IRegister, @intCast(self.registers[source1_register])) < @as(IRegister, @intCast(self.registers[source2_register])),
-                                    branch.BGE => @as(IRegister, @intCast(self.registers[source1_register])) >= @as(IRegister, @intCast(self.registers[source2_register])),
+                                    branch.BEQ => @as(IRegister, @bitCast(self.registers[source1_register])) == @as(IRegister, @bitCast(self.registers[source2_register])),
+                                    branch.BNE => @as(IRegister, @bitCast(self.registers[source1_register])) != @as(IRegister, @bitCast(self.registers[source2_register])),
+                                    branch.BLT => @as(IRegister, @bitCast(self.registers[source1_register])) < @as(IRegister, @bitCast(self.registers[source2_register])),
+                                    branch.BGE => @as(IRegister, @bitCast(self.registers[source1_register])) >= @as(IRegister, @bitCast(self.registers[source2_register])),
                                     branch.BLTU => self.registers[source1_register] < self.registers[source2_register],
                                     branch.BGEU => self.registers[source1_register] >= self.registers[source2_register],
                                     else => return error.InvalidFunction,
@@ -497,8 +515,7 @@ fn extract_16(value: u16, shift: u4, mask: u16) u16 {
 const op = struct {
     const ADD: u8 = 0b00000_00;
     const SUB: u8 = 0b01000_00;
-    // M extension
-    const MUL: u8 = 0b00000_01;
+    const M_EXT: u8 = 0b00000_01; // M extension
 };
 
 const op_imm = struct {
@@ -543,6 +560,11 @@ const system = struct {
     const CSRRWI: u8 = 0b101;
     const CSRRSI: u8 = 0b110;
     const CSRRCI: u8 = 0b111;
+};
+
+const m_ext = struct {
+    const MUL: u3 = 0b000;
+    const DIVU: u3 = 0b101;
 };
 
 fn opcode_32(instruction: u32) usize {

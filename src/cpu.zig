@@ -29,9 +29,10 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             exit,
             system: URegister,
         };
+        const u_max: URegister = std.math.maxInt(URegister);
 
         pub fn init() Cpu(cpu_kind) {
-            return .{
+            var cpu = Cpu(cpu_kind){
                 .registers = [_]URegister{0} ** 32,
                 .pc = 0,
                 .csrs = .{
@@ -41,9 +42,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     .test_register = 0,
                 },
             };
+            // set return address to an invalid address.
+            // when the pc is set to this, we know to exit.
+            cpu.registers[1] = u_max;
+            return cpu;
         }
 
         pub fn step(self: *Cpu(cpu_kind), mem: []u8) !Step {
+            if (self.pc == u_max) return .exit;
             const next_byte = mem[self.pc];
             const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
             switch (next_bits_1_0) {

@@ -15,6 +15,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             rdtime: u64,
             test_register: URegister,
         },
+        last_instruction: ?union(InstructionKind) {
+            inst48,
+            inst16a: u16,
+            inst16b: u16,
+            inst32: u32,
+        },
 
         const URegister = switch (cpu_kind) {
             .rv32 => u32,
@@ -28,7 +34,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
         const U_MAX: URegister = std.math.maxInt(URegister);
 
         pub const Step = union(enum) {
-            cont,
+            cont: Instruction,
             exit,
             system: URegister,
         };
@@ -43,6 +49,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     .rdtime = 0,
                     .test_register = 0,
                 },
+                .last_instruction = null,
             };
             // set return address to an invalid address.
             // when the pc is set to this, we know to exit.
@@ -57,92 +64,107 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             const next_byte = mem[self.pc];
             const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
             switch (@as(InstructionKind, @enumFromInt(next_bits_1_0))) {
-                .inst48 => return error.NotImplemented,
+                .inst48 => {
+                    self.last_instruction = .inst48;
+                    return error.NotImplemented;
+                },
                 .inst16a => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-
+                    self.last_instruction = .{ .inst16a = instruction };
                     if (std.meta.intToEnum(Instruction16AKind, funct3_16(instruction))) |inst16a_kind| {
-                        switch (inst16a_kind) {
-                            .addi => {
-                                const register = rd_16(instruction);
-                                const imm_value = ci_imm(instruction);
-                                const source_value: IRegister = @bitCast(self.registers[register]);
-                                const new_value = source_value + imm_value;
-                                self.set_register(register, @bitCast(new_value));
-                                self.pc += instruction_size;
-                            },
-                            .jal => {
-                                const imm_value = cj_imm(instruction);
-                                const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
-                                self.set_register(1, self.pc + instruction_size);
-                                self.pc = new_pc;
-                            },
-                            .li => {
-                                const dest_register = rd_16(instruction);
-                                const imm_value = ci_imm(instruction);
-                                self.set_register(dest_register, @intCast(imm_value));
-                                self.pc += instruction_size;
-                            },
-                            .srli_srai_andi => {
-                                const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
-                                switch (bits_11_to_10) {
-                                    // srli
-                                    0b00 => {
-                                        const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                        const uimm_value = try ci_uimm_5(instruction);
-                                        const source_value = self.registers[rd_register];
-                                        const new_value = source_value >> uimm_value;
-                                        self.set_register(rd_register, new_value);
-                                    },
-                                    // srai
-                                    0b01 => {
-                                        const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                        const uimm_value = try ci_uimm_5(instruction);
-                                        const source_value: IRegister = @intCast(self.registers[rd_register]);
-                                        const new_value = source_value >> uimm_value;
-                                        self.set_register(rd_register, @intCast(new_value));
-                                    },
-                                    // andi
-                                    0b10 => return error.NotImplemented,
-                                    // sub, and
-                                    0b11 => {
-                                        const bits_6_to_5: u2 = @intCast((instruction >> 5) & 0b11);
-                                        switch (bits_6_to_5) {
-                                            // sub
-                                            0b00 => {
-                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
-                                                const source_value = self.registers[rd_register];
-                                                const new_value = @subWithOverflow(source_value, self.registers[rs2_register])[0];
-                                                self.set_register(rd_register, new_value);
-                                            },
-                                            // and
-                                            0b11 => {
-                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
-                                                const source_value = self.registers[rd_register];
-                                                const new_value = source_value & self.registers[rs2_register];
-                                                self.set_register(rd_register, new_value);
-                                            },
-                                            else => return error.InvalidFunction,
-                                        }
-                                    },
-                                }
-                                self.pc += instruction_size;
-                                return .cont;
-                            },
-                            .beqz => {
-                                const source_register = (instruction >> 7) & 0b111;
-                                const offset = cb_imm(instruction);
-                                if (self.registers[source_register] == 0) {
-                                    self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
-                                } else {
+                        const inst16a: Instruction16A = blk: {
+                            switch (inst16a_kind) {
+                                .addi => {
+                                    const register = rd_16(instruction);
+                                    const imm_value = ci_imm(instruction);
+                                    const source_value: IRegister = @bitCast(self.registers[register]);
+                                    const new_value = source_value + imm_value;
+                                    self.set_register(register, @bitCast(new_value));
                                     self.pc += instruction_size;
-                                }
-                            },
-                        }
-                        return .cont;
+                                    break :blk .{ .addi = {} };
+                                },
+                                .jal => {
+                                    const imm_value = cj_imm(instruction);
+                                    const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
+                                    self.set_register(1, self.pc + instruction_size);
+                                    self.pc = new_pc;
+                                    break :blk .{ .jal = {} };
+                                },
+                                .li => {
+                                    const dest_register = rd_16(instruction);
+                                    const imm_value = ci_imm(instruction);
+                                    self.set_register(dest_register, @intCast(imm_value));
+                                    self.pc += instruction_size;
+                                    break :blk .{ .li = {} };
+                                },
+                                .ssas => {
+                                    const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
+                                    if (std.meta.intToEnum(Instruction16ASsasKind, bits_11_to_10)) |inst16a_ssas_kind| {
+                                        const inst16a_ssas: Instruction16ASsas = blk2: {
+                                            switch (inst16a_ssas_kind) {
+                                                .srli => {
+                                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                    const uimm_value = try ci_uimm_5(instruction);
+                                                    const source_value = self.registers[rd_register];
+                                                    const new_value = source_value >> uimm_value;
+                                                    self.set_register(rd_register, new_value);
+                                                    break :blk2 .{ .srli = {} };
+                                                },
+                                                .srai => {
+                                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                    const uimm_value = try ci_uimm_5(instruction);
+                                                    const source_value: IRegister = @intCast(self.registers[rd_register]);
+                                                    const new_value = source_value >> uimm_value;
+                                                    self.set_register(rd_register, @intCast(new_value));
+                                                    break :blk2 .{ .srai = {} };
+                                                },
+                                                .andi => return error.NotImplemented,
+                                                .sub_and => {
+                                                    const bits_6_to_5: u2 = @intCast((instruction >> 5) & 0b11);
+                                                    if (std.meta.intToEnum(Instruction16ASsasSubandKind, bits_6_to_5)) |inst16a_ssas_suband_kind| {
+                                                        switch (inst16a_ssas_suband_kind) {
+                                                            .sub => {
+                                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                                                const source_value = self.registers[rd_register];
+                                                                const new_value = @subWithOverflow(source_value, self.registers[rs2_register])[0];
+                                                                self.set_register(rd_register, new_value);
+                                                            },
+                                                            .and_ => {
+                                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                                                const source_value = self.registers[rd_register];
+                                                                const new_value = source_value & self.registers[rs2_register];
+                                                                self.set_register(rd_register, new_value);
+                                                            },
+                                                        }
+                                                        break :blk2 .{ .sub_and = inst16a_ssas_suband_kind };
+                                                    } else |_| {
+                                                        return error.InvalidInstruction16ASsasSubandKind;
+                                                    }
+                                                },
+                                            }
+                                        };
+                                        self.pc += instruction_size;
+                                        break :blk .{ .ssas = inst16a_ssas };
+                                    } else |_| {
+                                        return error.InvalidInstruction16ASsasKind;
+                                    }
+                                },
+                                .beqz => {
+                                    const source_register = (instruction >> 7) & 0b111;
+                                    const offset = cb_imm(instruction);
+                                    if (self.registers[source_register] == 0) {
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                    } else {
+                                        self.pc += instruction_size;
+                                    }
+                                    break :blk .{ .beqz = {} };
+                                },
+                            }
+                        };
+                        return .{ .cont = .{ .inst16a = inst16a } };
                     } else |_| {
                         return error.InvalidInstruction16AKind;
                     }
@@ -150,27 +172,31 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 .inst16b => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-
+                    self.last_instruction = .{ .inst16b = instruction };
                     if (std.meta.intToEnum(Instruction16BKind, funct3_16(instruction))) |inst16b_kind| {
-                        switch (inst16b_kind) {
-                            .jr_add => {
-                                const bit_12 = (instruction >> 12) & 0b1;
-                                if (bit_12 == 0) {
-                                    // jr
-                                    const source_register = rs1_16(instruction);
-                                    self.pc = self.registers[source_register];
-                                } else {
-                                    // add
-                                    const rd_register = rd_16(instruction);
-                                    const rs2_register = rs2_16(instruction);
-                                    const source_value = self.registers[rd_register];
-                                    const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
-                                    self.set_register(rd_register, new_value);
-                                    self.pc += instruction_size;
-                                }
-                            },
-                        }
-                        return .cont;
+                        const inst16b: Instruction16B = blk: {
+                            switch (inst16b_kind) {
+                                .jr_add => {
+                                    const bit_12 = (instruction >> 12) & 0b1;
+                                    if (bit_12 == 0) {
+                                        // jr
+                                        const source_register = rs1_16(instruction);
+                                        self.pc = self.registers[source_register];
+                                        break :blk .{ .jr_add = .jr };
+                                    } else {
+                                        // add
+                                        const rd_register = rd_16(instruction);
+                                        const rs2_register = rs2_16(instruction);
+                                        const source_value = self.registers[rd_register];
+                                        const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
+                                        self.set_register(rd_register, new_value);
+                                        self.pc += instruction_size;
+                                        break :blk .{ .jr_add = .add };
+                                    }
+                                },
+                            }
+                        };
+                        return .{ .cont = .{ .inst16b = inst16b } };
                     } else |_| {
                         return error.InvalidInstruction16BKind;
                     }
@@ -178,7 +204,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 .inst32 => {
                     const instruction_size = @sizeOf(u32);
                     const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
-
+                    self.last_instruction = .{ .inst32 = instruction };
                     if (std.meta.intToEnum(Instruction32Kind, opcode_32(instruction))) |inst32_kind| {
                         switch (inst32_kind) {
                             .op => {
@@ -231,7 +257,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                     }
                                     self.pc += instruction_size;
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .op = inst32_op_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32OpKind;
                                 }
@@ -273,7 +299,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                     }
                                     self.pc += instruction_size;
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .op_imm = inst32_op_imm_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32OpImmKind;
                                 }
@@ -284,7 +310,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                 self.set_register(dest_register, self.pc + instruction_size);
                                 self.pc = new_pc;
-                                return .cont;
+                                return .{ .cont = .{ .inst32 = .{ .jal = {} } } };
                             },
                             .jalr => {
                                 const source_register = rs1_32(instruction);
@@ -294,7 +320,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const new_pc = @as(URegister, @intCast(source_value + imm_value)) & ~@as(URegister, 1);
                                 self.set_register(dest_register, self.pc + instruction_size);
                                 self.pc = new_pc;
-                                return .cont;
+                                return .{ .cont = .{ .inst32 = .{ .jalr = {} } } };
                             },
                             .lui => return error.NotImplemented,
                             .auipc => return error.NotImplemented,
@@ -316,7 +342,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     } else {
                                         self.pc += instruction_size;
                                     }
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .branch = inst32_branch_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32BranchKind;
                                 }
@@ -335,7 +361,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .lhu => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
                                     }
                                     self.pc += instruction_size;
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .load = inst32_load_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32LoadKind;
                                 }
@@ -358,7 +384,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                     }
                                     self.pc += instruction_size;
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .store = inst32_store_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32StoreKind;
                                 }
@@ -367,7 +393,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             .system => {
                                 if (std.meta.intToEnum(Instruction32SystemKind, funct3_32(instruction))) |inst32_system_kind| {
                                     switch (inst32_system_kind) {
-                                        .ecall_or_ebreak => {
+                                        .ecall_ebreak => {
                                             switch (i_imm_32(instruction)) {
                                                 // ecall
                                                 0 => {
@@ -457,7 +483,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                     }
                                     self.pc += instruction_size;
-                                    return .cont;
+                                    return .{ .cont = .{ .inst32 = .{ .system = inst32_system_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction32SystemKind;
                                 }
@@ -514,21 +540,41 @@ pub const Instruction16AKind = enum(u3) {
     addi = 0b000,
     jal = 0b001,
     li = 0b010,
-    srli_srai_andi = 0b100,
+    ssas = 0b100,
     beqz = 0b110,
 };
 pub const Instruction16A = union(Instruction16AKind) {
     addi,
     jal,
     li,
-    srli_srai_andi,
+    ssas: Instruction16ASsas,
     beqz,
+};
+pub const Instruction16ASsasKind = enum(u2) {
+    srli = 0b00,
+    srai = 0b01,
+    andi = 0b10,
+    sub_and = 0b11,
+};
+pub const Instruction16ASsas = union(Instruction16ASsasKind) {
+    srli,
+    srai,
+    andi,
+    sub_and: Instruction16ASsasSubandKind,
+};
+pub const Instruction16ASsasSubandKind = enum(u2) {
+    sub = 0b00,
+    and_ = 0b11,
 };
 pub const Instruction16BKind = enum(u3) {
     jr_add = 0b100,
 };
 pub const Instruction16B = union(Instruction16BKind) {
-    jr_add,
+    jr_add: Instruction16BJraddKind,
+};
+pub const Instruction16BJraddKind = enum {
+    jr,
+    add,
 };
 pub const Instruction32Kind = enum(u7) {
     op = 0b01100_11,
@@ -545,16 +591,16 @@ pub const Instruction32Kind = enum(u7) {
 };
 pub const Instruction32 = union(Instruction32Kind) {
     op: Instruction32OpKind,
-    op_imm,
+    op_imm: Instruction32OpImmKind,
     jal,
     jalr,
     lui,
     auipc,
-    branch,
-    load,
-    store,
+    branch: Instruction32BranchKind,
+    load: Instruction32LoadKind,
+    store: Instruction32StoreKind,
     fence,
-    system,
+    system: Instruction32SystemKind,
 };
 pub const Instruction32OpKind = enum(u7) {
     add = 0b00000_00,
@@ -592,7 +638,7 @@ pub const Instruction32StoreKind = enum(u3) {
     sw = 0b010,
 };
 pub const Instruction32SystemKind = enum(u3) {
-    ecall_or_ebreak = 0b000,
+    ecall_ebreak = 0b000,
     csrrw = 0b001,
     csrrs = 0b010,
     csrrc = 0b011,

@@ -311,7 +311,13 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 self.pc = new_pc;
                                 return .{ .cont = .{ .inst32 = .{ .jalr = {} } } };
                             },
-                            .lui => return error.NotImplemented,
+                            .lui => {
+                                const dest_register = rd_32(instruction);
+                                const imm_value: IRegister = u_imm_32(instruction);
+                                self.set_register(dest_register, @bitCast(imm_value));
+                                self.pc += instruction_size;
+                                return .{ .cont = .{ .inst32 = .{ .lui = {} } } };
+                            },
                             .auipc => return error.NotImplemented,
                             .branch => {
                                 const source1_register = rs1_32(instruction);
@@ -638,6 +644,7 @@ pub const Instruction32SystemKind = enum(u3) {
 
 const SIGN_BIT_32: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
 const SIGN_BIT_16: u32 = 0b1000_0000_0000_0000;
+const C_20_BITS: u32 = 0b1111_1111_1111_1111_1111;
 const C_11_BITS: u32 = 0b111_1111_1111;
 const C_10_BITS: u32 = 0b11_1111_1111;
 const C_8_BITS: u32 = 0b1111_1111;
@@ -743,8 +750,14 @@ fn j_imm_32(instruction: u32) i32 {
     const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
     const bit_11 = extract_32(instruction, 20, 0b1) << 11;
     const bits_10_to_1 = extract_32(instruction, 21, C_10_BITS) << 1;
-    const bits_12_to_19 = extract_32(instruction, 12, C_8_BITS) << 12;
-    return sign_extend_32(bits_12_to_19 | bit_11 | bits_10_to_1, 20, sign_bit);
+    const bits_19_to_12 = extract_32(instruction, 12, C_8_BITS) << 12;
+    return sign_extend_32(bits_19_to_12 | bit_11 | bits_10_to_1, 20, sign_bit);
+}
+
+fn u_imm_32(instruction: u32) i32 {
+    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
+    const bits_31_to_12 = extract_32(instruction, 12, C_20_BITS);
+    return sign_extend_32(bits_31_to_12, 31, sign_bit);
 }
 
 fn ci_imm(instruction: u16) i16 {

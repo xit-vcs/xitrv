@@ -222,7 +222,7 @@ pub const Elf = struct {
         }
 
         const shoff = try reader.readInt(u64, endian);
-        if (shoff > 10000) {
+        if (shoff > 100_000) {
             return error.SectionHeaderOffsetTooLarge;
         }
 

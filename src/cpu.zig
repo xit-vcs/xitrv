@@ -15,12 +15,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             rdtime: u64,
             test_register: URegister,
         },
-        last_instruction: ?union(InstructionKind) {
-            inst48,
-            inst16a: u16,
-            inst16b: u16,
-            inst32: u32,
-        },
 
         const URegister = switch (cpu_kind) {
             .rv32 => u32,
@@ -49,7 +43,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     .rdtime = 0,
                     .test_register = 0,
                 },
-                .last_instruction = null,
             };
             // set return address to an invalid address.
             // when the pc is set to this, we know to exit.
@@ -65,13 +58,11 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
             switch (@as(InstructionKind, @enumFromInt(next_bits_1_0))) {
                 .inst48 => {
-                    self.last_instruction = .inst48;
                     return error.NotImplemented;
                 },
                 .inst16a => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-                    self.last_instruction = .{ .inst16a = instruction };
                     if (std.meta.intToEnum(Instruction16AKind, funct3_16(instruction))) |inst16a_kind| {
                         const inst16a: Instruction16A = blk: {
                             switch (inst16a_kind) {
@@ -172,7 +163,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 .inst16b => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-                    self.last_instruction = .{ .inst16b = instruction };
                     if (std.meta.intToEnum(Instruction16BKind, funct3_16(instruction))) |inst16b_kind| {
                         const inst16b: Instruction16B = blk: {
                             switch (inst16b_kind) {
@@ -204,7 +194,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 .inst32 => {
                     const instruction_size = @sizeOf(u32);
                     const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
-                    self.last_instruction = .{ .inst32 = instruction };
                     if (std.meta.intToEnum(Instruction32Kind, opcode_32(instruction))) |inst32_kind| {
                         switch (inst32_kind) {
                             .op => {

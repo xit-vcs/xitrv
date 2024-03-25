@@ -24,12 +24,20 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             .rv32 => i32,
             .rv64 => i64,
         };
-        const Step = union(enum) {
+
+        const U_MAX: URegister = std.math.maxInt(URegister);
+
+        pub const Step = union(enum) {
             cont,
             exit,
             system: URegister,
         };
-        const u_max: URegister = std.math.maxInt(URegister);
+        pub const InstructionKind = enum(u2) {
+            inst_48 = 0b00,
+            inst_16_1 = 0b01,
+            inst_16_2 = 0b10,
+            inst_32 = 0b11,
+        };
 
         pub fn init() Cpu(cpu_kind) {
             var cpu = Cpu(cpu_kind){
@@ -44,17 +52,19 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             };
             // set return address to an invalid address.
             // when the pc is set to this, we know to exit.
-            cpu.registers[1] = u_max;
+            cpu.registers[1] = U_MAX;
             return cpu;
         }
 
         pub fn step(self: *Cpu(cpu_kind), mem: []u8) !Step {
-            if (self.pc == u_max) return .exit;
+            if (self.pc == U_MAX) {
+                return .exit;
+            }
             const next_byte = mem[self.pc];
             const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
-            switch (next_bits_1_0) {
-                0b00 => return error.NotImplemented,
-                0b01 => {
+            switch (@as(InstructionKind, @enumFromInt(next_bits_1_0))) {
+                .inst_48 => return error.NotImplemented,
+                .inst_16_1 => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
 
@@ -146,7 +156,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     }
                     return .cont;
                 },
-                0b10 => {
+                .inst_16_2 => {
                     const instruction_size = @sizeOf(u16);
                     const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
 
@@ -172,7 +182,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     }
                     return .cont;
                 },
-                0b11 => {
+                .inst_32 => {
                     const instruction_size = @sizeOf(u32);
                     const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
 

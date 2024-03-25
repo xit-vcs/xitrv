@@ -239,6 +239,15 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                         const new_value = source1_value / source2_value;
                                                         self.set_register(dest_register, new_value);
                                                     },
+                                                    .mulhu => {
+                                                        const source1_register = rs1_32(instruction);
+                                                        const source1_value = self.registers[source1_register];
+                                                        const source2_register = rs2_32(instruction);
+                                                        const source2_value = self.registers[source2_register];
+                                                        const dest_register = rd_32(instruction);
+                                                        const new_value = @mulWithOverflow(source1_value, source2_value)[0];
+                                                        self.set_register(dest_register, new_value);
+                                                    },
                                                 }
                                             } else |_| {
                                                 return error.InvalidInstruction32OpMextKind;
@@ -626,6 +635,7 @@ pub const Instruction32OpKind = enum(u7) {
 pub const Instruction32OpMextKind = enum(u3) {
     mul = 0b000,
     divu = 0b101,
+    mulhu = 0b011,
 };
 pub const Instruction32OpImmKind = enum(u3) {
     addi = 0b000,

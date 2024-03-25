@@ -697,43 +697,43 @@ fn extract_16(value: u16, shift: u4, mask: u16) u16 {
 }
 
 fn opcode_32(instruction: u32) u7 {
-    return @truncate(extract_32(instruction, 0, C_7_BITS));
+    return @intCast(extract_32(instruction, 0, C_7_BITS));
 }
 
-fn rd_32(instruction: u32) usize {
-    return extract_32(instruction, 7, C_5_BITS);
+fn rd_32(instruction: u32) u5 {
+    return @intCast(extract_32(instruction, 7, C_5_BITS));
 }
 
-fn rd_16(instruction: u16) usize {
-    return extract_16(instruction, 7, C_5_BITS);
+fn rd_16(instruction: u16) u5 {
+    return @intCast(extract_16(instruction, 7, C_5_BITS));
 }
 
-fn rs1_32(instruction: u32) usize {
-    return extract_32(instruction, 15, C_5_BITS);
+fn rs1_32(instruction: u32) u5 {
+    return @intCast(extract_32(instruction, 15, C_5_BITS));
 }
 
-fn rs1_16(instruction: u16) usize {
-    return extract_16(instruction, 7, C_5_BITS);
+fn rs1_16(instruction: u16) u5 {
+    return @intCast(extract_16(instruction, 7, C_5_BITS));
 }
 
-fn rs2_32(instruction: u32) usize {
-    return extract_32(instruction, 20, C_5_BITS);
+fn rs2_32(instruction: u32) u5 {
+    return @intCast(extract_32(instruction, 20, C_5_BITS));
 }
 
-fn rs2_16(instruction: u16) usize {
-    return extract_16(instruction, 2, C_5_BITS);
+fn rs2_16(instruction: u16) u5 {
+    return @intCast(extract_16(instruction, 2, C_5_BITS));
 }
 
 fn funct3_16(instruction: u16) u3 {
-    return @truncate(extract_16(instruction, 13, C_3_BITS));
+    return @intCast(extract_16(instruction, 13, C_3_BITS));
 }
 
 fn funct3_32(instruction: u32) u3 {
-    return @truncate(extract_32(instruction, 12, C_3_BITS));
+    return @intCast(extract_32(instruction, 12, C_3_BITS));
 }
 
 fn funct7_32(instruction: u32) u7 {
-    return @truncate(extract_32(instruction, 25, C_7_BITS));
+    return @intCast(extract_32(instruction, 25, C_7_BITS));
 }
 
 fn csr_32(instruction: u32) u32 {

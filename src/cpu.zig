@@ -483,6 +483,25 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     return error.InvalidInstruction32SystemKind;
                                 }
                             },
+                            .rv64i => {
+                                const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
+                                if (std.meta.intToEnum(Instruction32RV64IKind, bits_14_to_12)) |inst32_rv64i_kind| {
+                                    switch (inst32_rv64i_kind) {
+                                        .addiw => {
+                                            const source_register = rs1_32(instruction);
+                                            const dest_register = rd_32(instruction);
+                                            const imm_value = i_imm_32(instruction);
+                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
+                                            const new_value = @addWithOverflow(source_value, imm_value)[0];
+                                            self.set_register(dest_register, @bitCast(new_value));
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .{ .cont = .{ .inst32 = .{ .rv64i = inst32_rv64i_kind } } };
+                                } else |_| {
+                                    return error.InvalidInstruction32RV64IKind;
+                                }
+                            },
                         }
                     } else |_| {
                         return error.InvalidInstruction32Kind;
@@ -583,6 +602,7 @@ pub const Instruction32Kind = enum(u7) {
     store = 0b01000_11,
     fence = 0b00011_11,
     system = 0b11100_11,
+    rv64i = 0b00110_11,
 };
 pub const Instruction32 = union(Instruction32Kind) {
     op: Instruction32OpKind,
@@ -596,6 +616,7 @@ pub const Instruction32 = union(Instruction32Kind) {
     store: Instruction32StoreKind,
     fence,
     system: Instruction32SystemKind,
+    rv64i: Instruction32RV64IKind,
 };
 pub const Instruction32OpKind = enum(u7) {
     add = 0b00000_00,
@@ -640,6 +661,9 @@ pub const Instruction32SystemKind = enum(u3) {
     csrrwi = 0b101,
     csrrsi = 0b110,
     csrrci = 0b111,
+};
+pub const Instruction32RV64IKind = enum(u3) {
+    addiw = 0b000,
 };
 
 const SIGN_BIT_32: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;

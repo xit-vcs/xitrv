@@ -104,17 +104,39 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             switch (inst16a_ssas_kind) {
                                                 .srli => {
                                                     const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                    const uimm_value = try ci_uimm_5(instruction);
-                                                    const source_value = self.registers[rd_register];
-                                                    const new_value = source_value >> uimm_value;
+                                                    const new_value = blk3: {
+                                                        switch (cpu_kind) {
+                                                            .rv32 => {
+                                                                const uimm_value = ci_uimm_5(instruction);
+                                                                const source_value = self.registers[rd_register];
+                                                                break :blk3 source_value >> uimm_value;
+                                                            },
+                                                            .rv64 => {
+                                                                const uimm_value = ci_uimm_6(instruction);
+                                                                const source_value = self.registers[rd_register];
+                                                                break :blk3 source_value >> uimm_value;
+                                                            },
+                                                        }
+                                                    };
                                                     self.set_register(rd_register, new_value);
                                                     break :blk2 .{ .srli = {} };
                                                 },
                                                 .srai => {
                                                     const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                    const uimm_value = try ci_uimm_5(instruction);
-                                                    const source_value: IRegister = @intCast(self.registers[rd_register]);
-                                                    const new_value = source_value >> uimm_value;
+                                                    const new_value = blk3: {
+                                                        switch (cpu_kind) {
+                                                            .rv32 => {
+                                                                const uimm_value = ci_uimm_5(instruction);
+                                                                const source_value: IRegister = @bitCast(self.registers[rd_register]);
+                                                                break :blk3 source_value >> uimm_value;
+                                                            },
+                                                            .rv64 => {
+                                                                const uimm_value = ci_uimm_6(instruction);
+                                                                const source_value: IRegister = @bitCast(self.registers[rd_register]);
+                                                                break :blk3 source_value >> uimm_value;
+                                                            },
+                                                        }
+                                                    };
                                                     self.set_register(rd_register, @intCast(new_value));
                                                     break :blk2 .{ .srai = {} };
                                                 },
@@ -287,9 +309,20 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .slli => {
                                             const source_register = rs1_32(instruction);
                                             const dest_register = rd_32(instruction);
-                                            const imm_value = i_uimm_5(instruction);
-                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                            const new_value = source_value << imm_value;
+                                            const new_value = blk: {
+                                                switch (cpu_kind) {
+                                                    .rv32 => {
+                                                        const imm_value = i_uimm_5(instruction);
+                                                        const source_value = self.registers[source_register];
+                                                        break :blk source_value << imm_value;
+                                                    },
+                                                    .rv64 => {
+                                                        const imm_value = i_uimm_6(instruction);
+                                                        const source_value = self.registers[source_register];
+                                                        break :blk source_value << imm_value;
+                                                    },
+                                                }
+                                            };
                                             self.set_register(dest_register, @bitCast(new_value));
                                         },
                                         .sltiu => {
@@ -779,8 +812,11 @@ fn i_imm_32(instruction: u32) i32 {
 }
 
 fn i_uimm_5(instruction: u32) u5 {
-    const raw_value = extract_32(instruction, 20, C_5_BITS);
-    return @intCast(raw_value);
+    return @intCast(extract_32(instruction, 20, C_5_BITS));
+}
+
+fn i_uimm_6(instruction: u32) u6 {
+    return @intCast(extract_32(instruction, 20, C_6_BITS));
 }
 
 fn s_imm_32(instruction: u32) i32 {
@@ -816,13 +852,15 @@ fn ci_imm(instruction: u16) i16 {
     return sign_extend_16(bits_4_to_0, 6, sign_bit);
 }
 
-fn ci_uimm_5(instruction: u16) !u5 {
-    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
-    if (bit_5 != 0) {
-        return error.Expected0Bit;
-    }
+fn ci_uimm_5(instruction: u16) u5 {
     const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
     return @intCast(bits_4_to_0);
+}
+
+fn ci_uimm_6(instruction: u16) u6 {
+    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
+    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
+    return @intCast(bit_5 | bits_4_to_0);
 }
 
 fn cj_imm(instruction: u16) i16 {

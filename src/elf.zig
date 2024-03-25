@@ -222,7 +222,7 @@ pub const Elf = struct {
         }
 
         const shoff = try reader.readInt(u64, endian);
-        if (shoff > 100_000) {
+        if (shoff > 10_000_000) {
             return error.SectionHeaderOffsetTooLarge;
         }
 
@@ -240,7 +240,7 @@ pub const Elf = struct {
         }
 
         const phnum = try reader.readInt(u16, endian);
-        if (phnum > 32) {
+        if (phnum > 50) {
             return error.TooManyProgramHeaderTableEntries;
         }
 
@@ -251,7 +251,7 @@ pub const Elf = struct {
         }
 
         const shnum = try reader.readInt(u16, endian);
-        if (shnum > 32) {
+        if (shnum > 50) {
             return error.TooManySectionHeaderTableEntries;
         }
 

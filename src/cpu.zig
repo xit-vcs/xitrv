@@ -335,8 +335,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             },
                             .lui => {
                                 const dest_register = rd_32(instruction);
-                                const imm_value: IRegister = u_imm_32(instruction);
-                                self.set_register(dest_register, @bitCast(imm_value));
+                                const imm_value: URegister = u_uimm_32(instruction);
+                                self.set_register(dest_register, imm_value);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst32 = .{ .lui = {} } } };
                             },
@@ -806,10 +806,8 @@ fn j_imm_32(instruction: u32) i32 {
     return sign_extend_32(bits_19_to_12 | bit_11 | bits_10_to_1, 20, sign_bit);
 }
 
-fn u_imm_32(instruction: u32) i32 {
-    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
-    const bits_31_to_12 = extract_32(instruction, 12, C_20_BITS);
-    return sign_extend_32(bits_31_to_12, 31, sign_bit);
+fn u_uimm_32(instruction: u32) u20 {
+    return @intCast(extract_32(instruction, 12, C_20_BITS));
 }
 
 fn ci_imm(instruction: u16) i16 {

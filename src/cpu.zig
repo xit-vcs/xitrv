@@ -142,10 +142,10 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                         }
+                        return .cont;
                     } else |_| {
                         return error.InvalidInstruction16AKind;
                     }
-                    return .cont;
                 },
                 .inst16b => {
                     const instruction_size = @sizeOf(u16);
@@ -170,10 +170,10 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                         }
+                        return .cont;
                     } else |_| {
                         return error.InvalidInstruction16BKind;
                     }
-                    return .cont;
                 },
                 .inst32 => {
                     const instruction_size = @sizeOf(u32);
@@ -182,94 +182,101 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     if (std.meta.intToEnum(Instruction32Kind, opcode_32(instruction))) |inst32_kind| {
                         switch (inst32_kind) {
                             .op => {
-                                const function = funct7_32(instruction);
-                                switch (function) {
-                                    op.ADD => {
-                                        const source1_register = rs1_32(instruction);
-                                        const source1_value = self.registers[source1_register];
-                                        const source2_register = rs2_32(instruction);
-                                        const source2_value = self.registers[source2_register];
-                                        const dest_register = rd_32(instruction);
-                                        const new_value = @addWithOverflow(source1_value, source2_value)[0];
-                                        self.set_register(dest_register, new_value);
-                                    },
-                                    op.SUB => {
-                                        const source1_register = rs1_32(instruction);
-                                        const source1_value = self.registers[source1_register];
-                                        const source2_register = rs2_32(instruction);
-                                        const source2_value = self.registers[source2_register];
-                                        const dest_register = rd_32(instruction);
-                                        const new_value = @subWithOverflow(source1_value, source2_value)[0];
-                                        self.set_register(dest_register, new_value);
-                                    },
-                                    op.M_EXT => {
-                                        const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
-                                        switch (bits_14_to_12) {
-                                            m_ext.MUL => {
-                                                const source1_register = rs1_32(instruction);
-                                                const source1_value = self.registers[source1_register];
-                                                const source2_register = rs2_32(instruction);
-                                                const source2_value = self.registers[source2_register];
-                                                const dest_register = rd_32(instruction);
-                                                const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                self.set_register(dest_register, new_value);
-                                            },
-                                            m_ext.DIVU => {
-                                                const source1_register = rs1_32(instruction);
-                                                const source1_value = self.registers[source1_register];
-                                                const source2_register = rs2_32(instruction);
-                                                const source2_value = self.registers[source2_register];
-                                                const dest_register = rd_32(instruction);
-                                                const new_value = source1_value / source2_value;
-                                                self.set_register(dest_register, new_value);
-                                            },
-                                            else => return error.InvalidFunction,
-                                        }
-                                    },
-                                    else => return error.InvalidFunction,
+                                if (std.meta.intToEnum(Instruction32OpKind, funct7_32(instruction))) |inst32_op_kind| {
+                                    switch (inst32_op_kind) {
+                                        .add => {
+                                            const source1_register = rs1_32(instruction);
+                                            const source1_value = self.registers[source1_register];
+                                            const source2_register = rs2_32(instruction);
+                                            const source2_value = self.registers[source2_register];
+                                            const dest_register = rd_32(instruction);
+                                            const new_value = @addWithOverflow(source1_value, source2_value)[0];
+                                            self.set_register(dest_register, new_value);
+                                        },
+                                        .sub => {
+                                            const source1_register = rs1_32(instruction);
+                                            const source1_value = self.registers[source1_register];
+                                            const source2_register = rs2_32(instruction);
+                                            const source2_value = self.registers[source2_register];
+                                            const dest_register = rd_32(instruction);
+                                            const new_value = @subWithOverflow(source1_value, source2_value)[0];
+                                            self.set_register(dest_register, new_value);
+                                        },
+                                        .m_ext => {
+                                            const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
+                                            if (std.meta.intToEnum(Instruction32OpMextKind, bits_14_to_12)) |inst32_op_mext_kind| {
+                                                switch (inst32_op_mext_kind) {
+                                                    .mul => {
+                                                        const source1_register = rs1_32(instruction);
+                                                        const source1_value = self.registers[source1_register];
+                                                        const source2_register = rs2_32(instruction);
+                                                        const source2_value = self.registers[source2_register];
+                                                        const dest_register = rd_32(instruction);
+                                                        const new_value = @mulWithOverflow(source1_value, source2_value)[0];
+                                                        self.set_register(dest_register, new_value);
+                                                    },
+                                                    .divu => {
+                                                        const source1_register = rs1_32(instruction);
+                                                        const source1_value = self.registers[source1_register];
+                                                        const source2_register = rs2_32(instruction);
+                                                        const source2_value = self.registers[source2_register];
+                                                        const dest_register = rd_32(instruction);
+                                                        const new_value = source1_value / source2_value;
+                                                        self.set_register(dest_register, new_value);
+                                                    },
+                                                }
+                                            } else |_| {
+                                                return error.InvalidInstruction32OpMextKind;
+                                            }
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32OpKind;
                                 }
-                                self.pc += instruction_size;
-                                return .cont;
                             },
                             .op_imm => {
-                                const function = funct3_32(instruction);
-                                switch (function) {
-                                    op_imm.ADDI => {
-                                        const source_register = rs1_32(instruction);
-                                        const dest_register = rd_32(instruction);
-                                        const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                        const new_value = source_value + imm_value;
-                                        self.set_register(dest_register, @bitCast(new_value));
-                                    },
-                                    op_imm.SLLI => {
-                                        const source_register = rs1_32(instruction);
-                                        const dest_register = rd_32(instruction);
-                                        const imm_value = i_uimm_5(instruction);
-                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                        const new_value = source_value << imm_value;
-                                        self.set_register(dest_register, @bitCast(new_value));
-                                    },
-                                    op_imm.SLTIU => {
-                                        const source_register = rs1_32(instruction);
-                                        const dest_register = rd_32(instruction);
-                                        const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                        const new_value: u32 = if (source_value < imm_value) 1 else 0;
-                                        self.set_register(dest_register, new_value);
-                                    },
-                                    op_imm.ANDI => {
-                                        const source_register = rs1_32(instruction);
-                                        const dest_register = rd_32(instruction);
-                                        const imm_value = i_imm_32(instruction);
-                                        const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                        const new_value = source_value & imm_value;
-                                        self.set_register(dest_register, @bitCast(new_value));
-                                    },
-                                    else => return error.InvalidFunction,
+                                if (std.meta.intToEnum(Instruction32OpImmKind, funct3_32(instruction))) |inst32_op_imm_kind| {
+                                    switch (inst32_op_imm_kind) {
+                                        .addi => {
+                                            const source_register = rs1_32(instruction);
+                                            const dest_register = rd_32(instruction);
+                                            const imm_value = i_imm_32(instruction);
+                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
+                                            const new_value = source_value + imm_value;
+                                            self.set_register(dest_register, @bitCast(new_value));
+                                        },
+                                        .slli => {
+                                            const source_register = rs1_32(instruction);
+                                            const dest_register = rd_32(instruction);
+                                            const imm_value = i_uimm_5(instruction);
+                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
+                                            const new_value = source_value << imm_value;
+                                            self.set_register(dest_register, @bitCast(new_value));
+                                        },
+                                        .sltiu => {
+                                            const source_register = rs1_32(instruction);
+                                            const dest_register = rd_32(instruction);
+                                            const imm_value = i_imm_32(instruction);
+                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
+                                            const new_value: u32 = if (source_value < imm_value) 1 else 0;
+                                            self.set_register(dest_register, new_value);
+                                        },
+                                        .andi => {
+                                            const source_register = rs1_32(instruction);
+                                            const dest_register = rd_32(instruction);
+                                            const imm_value = i_imm_32(instruction);
+                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
+                                            const new_value = source_value & imm_value;
+                                            self.set_register(dest_register, @bitCast(new_value));
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32OpImmKind;
                                 }
-                                self.pc += instruction_size;
-                                return .cont;
                             },
                             .jal => {
                                 const dest_register = rd_32(instruction);
@@ -277,9 +284,6 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                 self.set_register(dest_register, self.pc + instruction_size);
                                 self.pc = new_pc;
-                                if (self.pc & 0b11 != 0) {
-                                    return error.UnalignedInstruction;
-                                }
                                 return .cont;
                             },
                             .jalr => {
@@ -298,157 +302,165 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const source1_register = rs1_32(instruction);
                                 const source2_register = rs2_32(instruction);
                                 const offset = b_imm_32(instruction);
-                                const function = funct3_32(instruction);
-                                const cond = switch (function) {
-                                    branch.BEQ => @as(IRegister, @bitCast(self.registers[source1_register])) == @as(IRegister, @bitCast(self.registers[source2_register])),
-                                    branch.BNE => @as(IRegister, @bitCast(self.registers[source1_register])) != @as(IRegister, @bitCast(self.registers[source2_register])),
-                                    branch.BLT => @as(IRegister, @bitCast(self.registers[source1_register])) < @as(IRegister, @bitCast(self.registers[source2_register])),
-                                    branch.BGE => @as(IRegister, @bitCast(self.registers[source1_register])) >= @as(IRegister, @bitCast(self.registers[source2_register])),
-                                    branch.BLTU => self.registers[source1_register] < self.registers[source2_register],
-                                    branch.BGEU => self.registers[source1_register] >= self.registers[source2_register],
-                                    else => return error.InvalidFunction,
-                                };
-                                if (cond) {
-                                    self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
-                                } else {
-                                    self.pc += instruction_size;
+                                if (std.meta.intToEnum(Instruction32BranchKind, funct3_32(instruction))) |inst32_branch_kind| {
+                                    const cond = switch (inst32_branch_kind) {
+                                        .beq => @as(IRegister, @bitCast(self.registers[source1_register])) == @as(IRegister, @bitCast(self.registers[source2_register])),
+                                        .bne => @as(IRegister, @bitCast(self.registers[source1_register])) != @as(IRegister, @bitCast(self.registers[source2_register])),
+                                        .blt => @as(IRegister, @bitCast(self.registers[source1_register])) < @as(IRegister, @bitCast(self.registers[source2_register])),
+                                        .bge => @as(IRegister, @bitCast(self.registers[source1_register])) >= @as(IRegister, @bitCast(self.registers[source2_register])),
+                                        .bltu => self.registers[source1_register] < self.registers[source2_register],
+                                        .bgeu => self.registers[source1_register] >= self.registers[source2_register],
+                                    };
+                                    if (cond) {
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                    } else {
+                                        self.pc += instruction_size;
+                                    }
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32BranchKind;
                                 }
-                                return .cont;
                             },
                             .load => {
                                 const source_register = rs1_32(instruction);
                                 const offset = i_imm_32(instruction);
                                 const dest_register = rd_32(instruction);
                                 const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[source_register])) + offset);
-                                const function = funct3_32(instruction);
-                                switch (function) {
-                                    load.LB => self.set_register(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
-                                    load.LH => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
-                                    load.LW => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
-                                    load.LBU => self.set_register(dest_register, @as(u8, @intCast(mem[source_address]))),
-                                    load.LHU => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
-                                    else => return error.InvalidFunction,
+                                if (std.meta.intToEnum(Instruction32LoadKind, funct3_32(instruction))) |inst32_load_kind| {
+                                    switch (inst32_load_kind) {
+                                        .lb => self.set_register(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
+                                        .lh => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
+                                        .lw => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
+                                        .lbu => self.set_register(dest_register, @as(u8, @intCast(mem[source_address]))),
+                                        .lhu => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
+                                    }
+                                    self.pc += instruction_size;
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32LoadKind;
                                 }
-                                self.pc += instruction_size;
-                                return .cont;
                             },
                             .store => {
                                 const dest_register = rs1_32(instruction);
                                 const offset = s_imm_32(instruction);
                                 const dest_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[dest_register])) + offset);
                                 const source_value = self.registers[rs2_32(instruction)];
-                                const function = funct3_32(instruction);
-                                switch (function) {
-                                    store.SB => mem[dest_address] = @intCast(source_value),
-                                    store.SH => {
-                                        const val: u16 = @intCast(source_value);
-                                        @memcpy(mem[dest_address .. dest_address + 2], &std.mem.toBytes(val));
-                                    },
-                                    store.SW => {
-                                        const val: u32 = @intCast(source_value);
-                                        @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
-                                    },
-                                    else => return error.InvalidFunction,
+                                if (std.meta.intToEnum(Instruction32StoreKind, funct3_32(instruction))) |inst32_store_kind| {
+                                    switch (inst32_store_kind) {
+                                        .sb => mem[dest_address] = @intCast(source_value),
+                                        .sh => {
+                                            const val: u16 = @intCast(source_value);
+                                            @memcpy(mem[dest_address .. dest_address + 2], &std.mem.toBytes(val));
+                                        },
+                                        .sw => {
+                                            const val: u32 = @intCast(source_value);
+                                            @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32StoreKind;
                                 }
-                                self.pc += instruction_size;
-                                return .cont;
                             },
                             .fence => return error.NotImplemented,
                             .system => {
-                                const function = funct3_32(instruction);
-                                switch (function) {
-                                    system.ECALL_OR_EBREAK => {
-                                        const ECALL = 0;
-                                        const EBREAK = 1;
-                                        switch (i_imm_32(instruction)) {
-                                            ECALL => {
-                                                self.pc += instruction_size;
-                                                return .{ .system = self.registers[10] };
-                                            },
-                                            EBREAK => {
-                                                return error.NotImplemented;
-                                            },
-                                            else => return error.InvalidParameter,
-                                        }
-                                    },
-                                    system.CSRRW => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register = rs1_32(instruction);
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        try self.set_csr(csr_address, source_value);
-                                    },
-                                    system.CSRRS => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register = rs1_32(instruction);
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        if (source_value != 0) {
-                                            try self.set_csr(csr_address, csr_value | source_value);
-                                        }
-                                    },
-                                    system.CSRRC => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register = rs1_32(instruction);
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        if (source_value != 0) {
-                                            try self.set_csr(csr_address, csr_value & (~source_value));
-                                        }
-                                    },
-                                    system.CSRRWI => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register: URegister = @intCast(rs1_32(instruction));
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        try self.set_csr(csr_address, source_value);
-                                    },
-                                    system.CSRRSI => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register: URegister = @intCast(rs1_32(instruction));
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        if (source_value != 0) {
-                                            try self.set_csr(csr_address, csr_value | source_value);
-                                        }
-                                    },
-                                    system.CSRRCI => {
-                                        const csr_address: usize = csr_32(instruction);
-                                        const csr_value = try self.get_csr(csr_address);
-                                        const source_register: URegister = @intCast(rs1_32(instruction));
-                                        const source_value = self.registers[source_register];
-                                        const dest_register = rd_32(instruction);
-                                        if (dest_register != 0) {
-                                            self.set_register(dest_register, csr_value);
-                                        }
-                                        if (source_value != 0) {
-                                            try self.set_csr(csr_address, csr_value & (~source_value));
-                                        }
-                                    },
-                                    else => return error.InvalidFunction,
+                                if (std.meta.intToEnum(Instruction32SystemKind, funct3_32(instruction))) |inst32_system_kind| {
+                                    switch (inst32_system_kind) {
+                                        .ecall_or_ebreak => {
+                                            switch (i_imm_32(instruction)) {
+                                                // ecall
+                                                0 => {
+                                                    self.pc += instruction_size;
+                                                    return .{ .system = self.registers[10] };
+                                                },
+                                                // ebreak
+                                                1 => {
+                                                    return error.NotImplemented;
+                                                },
+                                                else => return error.InvalidParameter,
+                                            }
+                                        },
+                                        .csrrw => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register = rs1_32(instruction);
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            try self.set_csr(csr_address, source_value);
+                                        },
+                                        .csrrs => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register = rs1_32(instruction);
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            if (source_value != 0) {
+                                                try self.set_csr(csr_address, csr_value | source_value);
+                                            }
+                                        },
+                                        .csrrc => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register = rs1_32(instruction);
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            if (source_value != 0) {
+                                                try self.set_csr(csr_address, csr_value & (~source_value));
+                                            }
+                                        },
+                                        .csrrwi => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register: URegister = @intCast(rs1_32(instruction));
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            try self.set_csr(csr_address, source_value);
+                                        },
+                                        .csrrsi => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register: URegister = @intCast(rs1_32(instruction));
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            if (source_value != 0) {
+                                                try self.set_csr(csr_address, csr_value | source_value);
+                                            }
+                                        },
+                                        .csrrci => {
+                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_value = try self.get_csr(csr_address);
+                                            const source_register: URegister = @intCast(rs1_32(instruction));
+                                            const source_value = self.registers[source_register];
+                                            const dest_register = rd_32(instruction);
+                                            if (dest_register != 0) {
+                                                self.set_register(dest_register, csr_value);
+                                            }
+                                            if (source_value != 0) {
+                                                try self.set_csr(csr_address, csr_value & (~source_value));
+                                            }
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .cont;
+                                } else |_| {
+                                    return error.InvalidInstruction32SystemKind;
                                 }
-                                self.pc += instruction_size;
-                                return .cont;
                             },
                         }
                     } else |_| {
@@ -532,7 +544,7 @@ pub const Instruction32Kind = enum(u7) {
     system = 0b11100_11,
 };
 pub const Instruction32 = union(Instruction32Kind) {
-    op,
+    op: Instruction32OpKind,
     op_imm,
     jal,
     jalr,
@@ -544,8 +556,50 @@ pub const Instruction32 = union(Instruction32Kind) {
     fence,
     system,
 };
-
-// op codes
+pub const Instruction32OpKind = enum(u7) {
+    add = 0b00000_00,
+    sub = 0b01000_00,
+    m_ext = 0b00000_01,
+};
+pub const Instruction32OpMextKind = enum(u3) {
+    mul = 0b000,
+    divu = 0b101,
+};
+pub const Instruction32OpImmKind = enum(u3) {
+    addi = 0b000,
+    slli = 0b001,
+    sltiu = 0b011,
+    andi = 0b111,
+};
+pub const Instruction32BranchKind = enum(u3) {
+    beq = 0b000,
+    bne = 0b001,
+    blt = 0b100,
+    bge = 0b101,
+    bltu = 0b110,
+    bgeu = 0b111,
+};
+pub const Instruction32LoadKind = enum(u3) {
+    lb = 0b000,
+    lh = 0b001,
+    lw = 0b010,
+    lbu = 0b100,
+    lhu = 0b101,
+};
+pub const Instruction32StoreKind = enum(u3) {
+    sb = 0b000,
+    sh = 0b001,
+    sw = 0b010,
+};
+pub const Instruction32SystemKind = enum(u3) {
+    ecall_or_ebreak = 0b000,
+    csrrw = 0b001,
+    csrrs = 0b010,
+    csrrc = 0b011,
+    csrrwi = 0b101,
+    csrrsi = 0b110,
+    csrrci = 0b111,
+};
 
 const SIGN_BIT_32: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
 const SIGN_BIT_16: u32 = 0b1000_0000_0000_0000;
@@ -557,61 +611,6 @@ const C_6_BITS: u32 = 0b11_1111;
 const C_5_BITS: u32 = 0b1_1111;
 const C_4_BITS: u32 = 0b1111;
 const C_3_BITS: u32 = 0b111;
-
-const op = struct {
-    const ADD: u8 = 0b00000_00;
-    const SUB: u8 = 0b01000_00;
-    const M_EXT: u8 = 0b00000_01; // M extension
-};
-
-const op_imm = struct {
-    const ADDI: u8 = 0b000;
-    const SLLI: u8 = 0b001;
-    const SLTI: u8 = 0b010;
-    const XORI: u8 = 0b100;
-    const SLTIU: u8 = 0b011;
-    const ORI: u8 = 0b110;
-    const ANDI: u8 = 0b111;
-    const SRLI_OR_SRAI: u8 = 0b101;
-};
-
-const branch = struct {
-    const BEQ: u8 = 0b000;
-    const BNE: u8 = 0b001;
-    const BLT: u8 = 0b100;
-    const BGE: u8 = 0b101;
-    const BLTU: u8 = 0b110;
-    const BGEU: u8 = 0b111;
-};
-
-const load = struct {
-    const LB: u8 = 0b000;
-    const LH: u8 = 0b001;
-    const LW: u8 = 0b010;
-    const LBU: u8 = 0b100;
-    const LHU: u8 = 0b101;
-};
-
-const store = struct {
-    const SB: u8 = 0b000;
-    const SH: u8 = 0b001;
-    const SW: u8 = 0b010;
-};
-
-const system = struct {
-    const ECALL_OR_EBREAK: u8 = 0b000;
-    const CSRRW: u8 = 0b001;
-    const CSRRS: u8 = 0b010;
-    const CSRRC: u8 = 0b011;
-    const CSRRWI: u8 = 0b101;
-    const CSRRSI: u8 = 0b110;
-    const CSRRCI: u8 = 0b111;
-};
-
-const m_ext = struct {
-    const MUL: u3 = 0b000;
-    const DIVU: u3 = 0b101;
-};
 
 fn extract_32(value: u32, shift: u5, mask: u32) u32 {
     return (value >> shift) & mask;

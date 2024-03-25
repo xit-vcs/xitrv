@@ -24,6 +24,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             .rv32 => i32,
             .rv64 => i64,
         };
+        const URegisterDouble = switch (cpu_kind) {
+            .rv32 => u64,
+            .rv64 => u128,
+        };
+        const IRegisterDouble = switch (cpu_kind) {
+            .rv32 => i64,
+            .rv64 => i128,
+        };
 
         const U_MAX: URegister = std.math.maxInt(URegister);
 
@@ -198,64 +206,69 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         switch (inst32_kind) {
                             .op => {
                                 if (std.meta.intToEnum(Instruction32OpKind, funct7_32(instruction))) |inst32_op_kind| {
-                                    switch (inst32_op_kind) {
-                                        .add => {
-                                            const source1_register = rs1_32(instruction);
-                                            const source1_value = self.registers[source1_register];
-                                            const source2_register = rs2_32(instruction);
-                                            const source2_value = self.registers[source2_register];
-                                            const dest_register = rd_32(instruction);
-                                            const new_value = @addWithOverflow(source1_value, source2_value)[0];
-                                            self.set_register(dest_register, new_value);
-                                        },
-                                        .sub => {
-                                            const source1_register = rs1_32(instruction);
-                                            const source1_value = self.registers[source1_register];
-                                            const source2_register = rs2_32(instruction);
-                                            const source2_value = self.registers[source2_register];
-                                            const dest_register = rd_32(instruction);
-                                            const new_value = @subWithOverflow(source1_value, source2_value)[0];
-                                            self.set_register(dest_register, new_value);
-                                        },
-                                        .m_ext => {
-                                            const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
-                                            if (std.meta.intToEnum(Instruction32OpMextKind, bits_14_to_12)) |inst32_op_mext_kind| {
-                                                switch (inst32_op_mext_kind) {
-                                                    .mul => {
-                                                        const source1_register = rs1_32(instruction);
-                                                        const source1_value = self.registers[source1_register];
-                                                        const source2_register = rs2_32(instruction);
-                                                        const source2_value = self.registers[source2_register];
-                                                        const dest_register = rd_32(instruction);
-                                                        const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                        self.set_register(dest_register, new_value);
-                                                    },
-                                                    .divu => {
-                                                        const source1_register = rs1_32(instruction);
-                                                        const source1_value = self.registers[source1_register];
-                                                        const source2_register = rs2_32(instruction);
-                                                        const source2_value = self.registers[source2_register];
-                                                        const dest_register = rd_32(instruction);
-                                                        const new_value = source1_value / source2_value;
-                                                        self.set_register(dest_register, new_value);
-                                                    },
-                                                    .mulhu => {
-                                                        const source1_register = rs1_32(instruction);
-                                                        const source1_value = self.registers[source1_register];
-                                                        const source2_register = rs2_32(instruction);
-                                                        const source2_value = self.registers[source2_register];
-                                                        const dest_register = rd_32(instruction);
-                                                        const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                        self.set_register(dest_register, new_value);
-                                                    },
+                                    const inst32_op: Instruction32Op = blk: {
+                                        switch (inst32_op_kind) {
+                                            .add => {
+                                                const source1_register = rs1_32(instruction);
+                                                const source1_value = self.registers[source1_register];
+                                                const source2_register = rs2_32(instruction);
+                                                const source2_value = self.registers[source2_register];
+                                                const dest_register = rd_32(instruction);
+                                                const new_value = @addWithOverflow(source1_value, source2_value)[0];
+                                                self.set_register(dest_register, new_value);
+                                                break :blk .{ .add = {} };
+                                            },
+                                            .sub => {
+                                                const source1_register = rs1_32(instruction);
+                                                const source1_value = self.registers[source1_register];
+                                                const source2_register = rs2_32(instruction);
+                                                const source2_value = self.registers[source2_register];
+                                                const dest_register = rd_32(instruction);
+                                                const new_value = @subWithOverflow(source1_value, source2_value)[0];
+                                                self.set_register(dest_register, new_value);
+                                                break :blk .{ .sub = {} };
+                                            },
+                                            .m_ext => {
+                                                const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
+                                                if (std.meta.intToEnum(Instruction32OpMextKind, bits_14_to_12)) |inst32_op_mext_kind| {
+                                                    switch (inst32_op_mext_kind) {
+                                                        .mul => {
+                                                            const source1_register = rs1_32(instruction);
+                                                            const source1_value: IRegister = @bitCast(self.registers[source1_register]);
+                                                            const source2_register = rs2_32(instruction);
+                                                            const source2_value: IRegister = @bitCast(self.registers[source2_register]);
+                                                            const dest_register = rd_32(instruction);
+                                                            const new_value = @mulWithOverflow(source1_value, source2_value)[0];
+                                                            self.set_register(dest_register, @bitCast(new_value));
+                                                        },
+                                                        .divu => {
+                                                            const source1_register = rs1_32(instruction);
+                                                            const source1_value = self.registers[source1_register];
+                                                            const source2_register = rs2_32(instruction);
+                                                            const source2_value = self.registers[source2_register];
+                                                            const dest_register = rd_32(instruction);
+                                                            const new_value = source1_value / source2_value;
+                                                            self.set_register(dest_register, new_value);
+                                                        },
+                                                        .mulhu => {
+                                                            const source1_register = rs1_32(instruction);
+                                                            const source1_value: URegisterDouble = self.registers[source1_register];
+                                                            const source2_register = rs2_32(instruction);
+                                                            const source2_value: URegisterDouble = self.registers[source2_register];
+                                                            const dest_register = rd_32(instruction);
+                                                            const new_value = (source1_value * source2_value) >> @bitSizeOf(URegister);
+                                                            self.set_register(dest_register, @intCast(new_value));
+                                                        },
+                                                    }
+                                                    break :blk .{ .m_ext = inst32_op_mext_kind };
+                                                } else |_| {
+                                                    return error.InvalidInstruction32OpMextKind;
                                                 }
-                                            } else |_| {
-                                                return error.InvalidInstruction32OpMextKind;
-                                            }
-                                        },
-                                    }
+                                            },
+                                        }
+                                    };
                                     self.pc += instruction_size;
-                                    return .{ .cont = .{ .inst32 = .{ .op = inst32_op_kind } } };
+                                    return .{ .cont = .{ .inst32 = .{ .op = inst32_op } } };
                                 } else |_| {
                                     return error.InvalidInstruction32OpKind;
                                 }
@@ -614,7 +627,7 @@ pub const Instruction32Kind = enum(u7) {
     rv64i = 0b00110_11,
 };
 pub const Instruction32 = union(Instruction32Kind) {
-    op: Instruction32OpKind,
+    op: Instruction32Op,
     op_imm: Instruction32OpImmKind,
     jal,
     jalr,
@@ -631,6 +644,11 @@ pub const Instruction32OpKind = enum(u7) {
     add = 0b00000_00,
     sub = 0b01000_00,
     m_ext = 0b00000_01,
+};
+pub const Instruction32Op = union(Instruction32OpKind) {
+    add,
+    sub,
+    m_ext: Instruction32OpMextKind,
 };
 pub const Instruction32OpMextKind = enum(u3) {
     mul = 0b000,

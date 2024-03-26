@@ -230,8 +230,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                 },
                                 .sdsp => {
-                                    if (cpu_kind == .rv32) {
-                                        return error.InvalidInstructionForRV32;
+                                    if (cpu_kind != .rv64) {
+                                        return error.RV64OnlyInstruction;
                                     }
                                     const sp = self.registers[2];
                                     const offset = css_uimm_6(instruction);
@@ -459,6 +459,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .sw => {
                                             const val: u32 = @intCast(source_value);
                                             @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(val));
+                                        },
+                                        .sd => {
+                                            if (cpu_kind != .rv64) {
+                                                return error.RV64OnlyInstruction;
+                                            }
+                                            @memcpy(mem[dest_address .. dest_address + 8], &std.mem.toBytes(source_value));
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -749,6 +755,7 @@ pub const Instruction11StoreKind = enum(u3) {
     sb = 0b000,
     sh = 0b001,
     sw = 0b010,
+    sd = 0b011,
 };
 pub const Instruction11SystemKind = enum(u3) {
     ecall_ebreak = 0b000,

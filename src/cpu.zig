@@ -189,7 +189,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                 },
                                 .beqz => {
-                                    const source_register = (instruction >> 7) & 0b111;
+                                    const source_register = 8 + ((instruction >> 7) & 0b111);
                                     const offset = cb_imm(instruction);
                                     if (self.registers[source_register] == 0) {
                                         self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
@@ -197,6 +197,16 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         self.pc += instruction_size;
                                     }
                                     break :blk .{ .beqz = {} };
+                                },
+                                .bnez => {
+                                    const source_register = 8 + ((instruction >> 7) & 0b111);
+                                    const offset = cb_imm(instruction);
+                                    if (self.registers[source_register] != 0) {
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                    } else {
+                                        self.pc += instruction_size;
+                                    }
+                                    break :blk .{ .bnez = {} };
                                 },
                             }
                         };
@@ -651,6 +661,7 @@ pub const Instruction01Kind = enum(u3) {
     li = 0b010,
     ssas = 0b100,
     beqz = 0b110,
+    bnez = 0b111,
 };
 pub const Instruction01 = union(Instruction01Kind) {
     addi,
@@ -658,6 +669,7 @@ pub const Instruction01 = union(Instruction01Kind) {
     li,
     ssas: Instruction01Ssas,
     beqz,
+    bnez,
 };
 pub const Instruction01SsasKind = enum(u2) {
     srli = 0b00,
@@ -892,7 +904,7 @@ fn u_uimm_32(instruction: u32) u32 {
 fn ci_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 11, 0b1) != 0;
     const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
-    return sign_extend_16(bits_4_to_0, 6, sign_bit);
+    return sign_extend_16(bits_4_to_0, 5, sign_bit);
 }
 
 fn ci_uimm_5(instruction: u16) u5 {
@@ -909,14 +921,15 @@ fn ci_uimm_6(instruction: u16) u6 {
 fn cj_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 12, 0b1) != 0;
     const bits_10_to_1 = extract_16(instruction, 2, C_10_BITS) << 1;
-    return sign_extend_16(bits_10_to_1, 12, sign_bit);
+    return sign_extend_16(bits_10_to_1, 11, sign_bit);
 }
 
 fn cb_imm(instruction: u16) i16 {
-    const sign_bit = extract_16(instruction, 8, 0b1) != 0;
-    const bits_7_to_6 = extract_16(instruction, 10, 0b11);
-    const bits_5_to_1 = extract_16(instruction, 2, C_5_BITS);
-    return sign_extend_16(bits_7_to_6 | bits_5_to_1, 9, sign_bit);
+    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
+    const bits_7_to_6 = extract_16(instruction, 10, 0b11) << 6;
+    const bit_5 = extract_16(instruction, 2, 0b1) << 5;
+    const bits_4_to_1 = extract_16(instruction, 3, C_4_BITS) << 1;
+    return sign_extend_16(bits_7_to_6 | bit_5 | bits_4_to_1, 8, sign_bit);
 }
 
 fn css_uimm_6(instruction: u16) u6 {

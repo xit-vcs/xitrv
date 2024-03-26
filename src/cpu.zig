@@ -221,6 +221,18 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                     if (std.meta.intToEnum(Instruction10Kind, funct3_16(instruction))) |inst10_kind| {
                         const inst10: Instruction10 = blk: {
                             switch (inst10_kind) {
+                                .ldsp => {
+                                    if (cpu_kind != .rv64) {
+                                        return error.RV64OnlyInstruction;
+                                    }
+                                    const sp = self.registers[2];
+                                    const offset = ldsp_uimm_6(instruction);
+                                    const source_address = sp + offset;
+                                    const dest_register = rd_16(instruction);
+                                    self.set_register(dest_register, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                    self.pc += instruction_size;
+                                    break :blk .{ .ldsp = {} };
+                                },
                                 .jr_add => {
                                     const bit_12 = (instruction >> 12) & 0b1;
                                     if (bit_12 == 0) {
@@ -244,7 +256,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         return error.RV64OnlyInstruction;
                                     }
                                     const sp = self.registers[2];
-                                    const offset = css_uimm_6(instruction);
+                                    const offset = sdsp_uimm_6(instruction);
                                     const rs2_register = rs2_16(instruction);
                                     const rs2_value = self.registers[rs2_register];
                                     const dest_address = sp + offset;
@@ -694,10 +706,12 @@ pub const Instruction01SsasSubandKind = enum(u2) {
     and_ = 0b11,
 };
 pub const Instruction10Kind = enum(u3) {
+    ldsp = 0b011,
     jr_add = 0b100,
     sdsp = 0b111,
 };
 pub const Instruction10 = union(Instruction10Kind) {
+    ldsp,
     jr_add: Instruction10JraddKind,
     sdsp,
 };
@@ -798,8 +812,6 @@ const C_8_BITS: u32 = 0b1111_1111;
 const C_7_BITS: u32 = 0b111_1111;
 const C_6_BITS: u32 = 0b11_1111;
 const C_5_BITS: u32 = 0b1_1111;
-const C_4_BITS: u32 = 0b1111;
-const C_3_BITS: u32 = 0b111;
 
 fn extract_32(value: u32, shift: u5, mask: u32) u32 {
     return (value >> shift) & mask;
@@ -838,11 +850,11 @@ fn rs2_16(instruction: u16) u5 {
 }
 
 fn funct3_16(instruction: u16) u3 {
-    return @intCast(extract_16(instruction, 13, C_3_BITS));
+    return @intCast(extract_16(instruction, 13, 0b111));
 }
 
 fn funct3_32(instruction: u32) u3 {
-    return @intCast(extract_32(instruction, 12, C_3_BITS));
+    return @intCast(extract_32(instruction, 12, 0b111));
 }
 
 fn funct7_32(instruction: u32) u7 {
@@ -892,7 +904,7 @@ fn b_imm_32(instruction: u32) i32 {
     const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
     const bit_11 = extract_32(instruction, 7, 0b1) << 11;
     const bits_10_to_5 = extract_32(instruction, 25, C_6_BITS) << 5;
-    const bits_4_to_1 = extract_32(instruction, 8, C_4_BITS) << 1;
+    const bits_4_to_1 = extract_32(instruction, 8, 0b1111) << 1;
     return sign_extend_32(bit_11 | bits_10_to_5 | bits_4_to_1, 12, sign_bit);
 }
 
@@ -929,7 +941,7 @@ fn cj_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 12, 0b1) != 0;
     const bits_11_to_6 = extract_16(instruction, 8, C_6_BITS) << 6;
     const bit_5 = extract_16(instruction, 2, 0b1) << 5;
-    const bits_4_to_1 = extract_16(instruction, 3, C_4_BITS) << 1;
+    const bits_4_to_1 = extract_16(instruction, 3, 0b1111) << 1;
     return sign_extend_16(bits_11_to_6 | bit_5 | bits_4_to_1, 12, sign_bit);
 }
 
@@ -937,12 +949,21 @@ fn cb_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 12, 0b1) != 0;
     const bits_7_to_6 = extract_16(instruction, 10, 0b11) << 6;
     const bit_5 = extract_16(instruction, 2, 0b1) << 5;
-    const bits_4_to_1 = extract_16(instruction, 3, C_4_BITS) << 1;
+    const bits_4_to_1 = extract_16(instruction, 3, 0b1111) << 1;
     return sign_extend_16(bits_7_to_6 | bit_5 | bits_4_to_1, 8, sign_bit);
 }
 
-fn css_uimm_6(instruction: u16) u6 {
-    return @intCast(extract_16(instruction, 7, C_6_BITS));
+fn ldsp_uimm_6(instruction: u16) u6 {
+    const bits_8_to_6 = extract_16(instruction, 2, 0b111) << 6;
+    const bit_5 = extract_16(instruction, 12, 0b1) << 5;
+    const bits_4_to_3 = extract_16(instruction, 5, 0b11) << 3;
+    return @intCast(bits_8_to_6 | bit_5 | bits_4_to_3);
+}
+
+fn sdsp_uimm_6(instruction: u16) u6 {
+    const bits_8_to_6 = extract_16(instruction, 7, 0b111) << 6;
+    const bits_5_to_3 = extract_16(instruction, 10, 0b111) << 3;
+    return @intCast(bits_8_to_6 | bits_5_to_3);
 }
 
 fn ciw_uimm_8(instruction: u16) u8 {

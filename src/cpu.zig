@@ -920,8 +920,10 @@ fn ci_uimm_6(instruction: u16) u6 {
 
 fn cj_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 12, 0b1) != 0;
-    const bits_10_to_1 = extract_16(instruction, 2, C_10_BITS) << 1;
-    return sign_extend_16(bits_10_to_1, 11, sign_bit);
+    const bits_11_to_6 = extract_16(instruction, 8, C_6_BITS) << 6;
+    const bit_5 = extract_16(instruction, 2, 0b1) << 5;
+    const bits_4_to_1 = extract_16(instruction, 3, C_4_BITS) << 1;
+    return sign_extend_16(bits_11_to_6 | bit_5 | bits_4_to_1, 12, sign_bit);
 }
 
 fn cb_imm(instruction: u16) i16 {

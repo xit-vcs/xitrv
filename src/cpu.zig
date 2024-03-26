@@ -442,11 +442,17 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[source_register])) + offset);
                                 if (std.meta.intToEnum(Instruction11LoadKind, funct3_32(instruction))) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
-                                        .lb => self.set_register(dest_register, @intCast(@as(i8, @intCast(mem[source_address])))),
-                                        .lh => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i16, mem[source_address .. source_address + 2]))),
-                                        .lw => self.set_register(dest_register, @intCast(std.mem.bytesToValue(i32, mem[source_address .. source_address + 4]))),
-                                        .lbu => self.set_register(dest_register, @as(u8, @intCast(mem[source_address]))),
-                                        .lhu => self.set_register(dest_register, std.mem.bytesToValue(u16, mem[source_address .. source_address + 2])),
+                                        .lb => self.set_register(dest_register, @bitCast(@as(IRegister, mem[source_address]))),
+                                        .lh => self.set_register(dest_register, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
+                                        .lw => self.set_register(dest_register, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
+                                        .ld => {
+                                            if (cpu_kind != .rv64) {
+                                                return error.RV64OnlyInstruction;
+                                            }
+                                            self.set_register(dest_register, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                        },
+                                        .lbu => self.set_register(dest_register, mem[source_address]),
+                                        .lhu => self.set_register(dest_register, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };
@@ -760,6 +766,7 @@ pub const Instruction11LoadKind = enum(u3) {
     lb = 0b000,
     lh = 0b001,
     lw = 0b010,
+    ld = 0b011,
     lbu = 0b100,
     lhu = 0b101,
 };

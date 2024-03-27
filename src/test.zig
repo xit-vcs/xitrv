@@ -45,7 +45,7 @@ test "inc" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 500_000);
     defer mem.deinit();
     mem.expandToCapacity();
 
@@ -53,7 +53,9 @@ test "inc" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
+    cpu.registers[2] = section.kind.progbits.buffer.len;
     cpu.registers[10] = 42;
+    var count: usize = 0;
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {
@@ -64,6 +66,10 @@ test "inc" {
                     else => return error.InvalidEcall,
                 }
             },
+        }
+        count += 1;
+        if (count > 100) {
+            return error.CountExceededLimit;
         }
     }
     try std.testing.expectEqual(43, cpu.registers[10]);
@@ -80,7 +86,7 @@ test "recur" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 500_000);
     defer mem.deinit();
     mem.expandToCapacity();
 
@@ -88,7 +94,9 @@ test "recur" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
+    cpu.registers[2] = section.kind.progbits.buffer.len;
     cpu.registers[10] = 1;
+    var count: usize = 0;
     while (true) {
         const step = try cpu.step(mem.items);
         switch (step) {
@@ -99,6 +107,10 @@ test "recur" {
                     else => return error.InvalidEcall,
                 }
             },
+        }
+        count += 1;
+        if (count > 100) {
+            return error.CountExceededLimit;
         }
     }
     try std.testing.expectEqual(10, cpu.registers[10]);

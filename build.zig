@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
             .os_tag = .linux,
             .ofmt = .elf,
         }),
-        .optimize = .ReleaseSmall,
+        .optimize = .Debug,
     });
     const install_test_lib = b.addInstallArtifact(test_lib, .{});
 

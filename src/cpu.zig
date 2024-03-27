@@ -72,10 +72,21 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         switch (inst00_kind) {
                             .addi4spn => {
                                 const rd_register = 8 + ((instruction >> 2) & 0b111);
-                                const imm_value = ciw_uimm_8(instruction);
+                                const imm_value = addi4spn_uimm(instruction);
                                 self.set_register(rd_register, self.registers[2] + imm_value);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst00 = .{ .addi4spn = {} } } };
+                            },
+                            .sw => {
+                                const rs1_register = 8 + ((instruction >> 7) & 0b111);
+                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                const rs1_value = self.registers[rs1_register];
+                                const rs2_value: u32 = @intCast(self.registers[rs2_register]);
+                                const offset = sw_uimm(instruction);
+                                const dest_address = rs1_value + offset;
+                                @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(rs2_value));
+                                self.pc += instruction_size;
+                                return .{ .cont = .{ .inst00 = .{ .sw = {} } } };
                             },
                         }
                     } else |_| {
@@ -692,10 +703,12 @@ pub const Instruction = union(InstructionKind) {
     inst11: Instruction11,
 };
 pub const Instruction00Kind = enum(u3) {
-    addi4spn,
+    addi4spn = 0b000,
+    sw = 0b110,
 };
 pub const Instruction00 = union(Instruction00Kind) {
     addi4spn,
+    sw,
 };
 pub const Instruction01Kind = enum(u3) {
     addi = 0b000,
@@ -967,7 +980,7 @@ fn ci_uimm_6(instruction: u16) u6 {
 
 fn cj_imm(instruction: u16) i16 {
     const sign_bit = extract_16(instruction, 12, 0b1) != 0;
-    const bits_11_to_6 = extract_16(instruction, 8, C_6_BITS) << 6;
+    const bits_11_to_6 = extract_16(instruction, 7, C_6_BITS) << 6;
     const bit_5 = extract_16(instruction, 2, 0b1) << 5;
     const bits_4_to_1 = extract_16(instruction, 3, 0b1111) << 1;
     return sign_extend_16(bits_11_to_6 | bit_5 | bits_4_to_1, 12, sign_bit);
@@ -1002,6 +1015,17 @@ fn addi16sp_imm(instruction: u16) i16 {
     return sign_extend_16(bits_8_to_6 | bit_5 | bit_4, 9, sign_bit);
 }
 
-fn ciw_uimm_8(instruction: u16) u8 {
-    return @intCast(extract_16(instruction, 5, C_8_BITS));
+fn addi4spn_uimm(instruction: u16) u16 {
+    const bits_9_to_6 = extract_16(instruction, 7, 0b1111) << 6;
+    const bits_5_to_4 = extract_16(instruction, 11, 0b11) << 4;
+    const bit_3 = extract_16(instruction, 5, 0b1) << 3;
+    const bit_2 = extract_16(instruction, 6, 0b1) << 2;
+    return bits_9_to_6 | bits_5_to_4 | bit_3 | bit_2;
+}
+
+fn sw_uimm(instruction: u16) u16 {
+    const bit_6 = extract_16(instruction, 5, 0b1) << 6;
+    const bits_5_to_3 = extract_16(instruction, 10, 0b111) << 3;
+    const bit_2 = extract_16(instruction, 6, 0b1) << 2;
+    return bit_6 | bits_5_to_3 | bit_2;
 }

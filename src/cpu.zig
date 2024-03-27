@@ -112,6 +112,19 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     self.pc += instruction_size;
                                     break :blk .{ .li = {} };
                                 },
+                                .addi16sp_lui => {
+                                    const bits_11_to_7: u5 = @intCast((instruction >> 7) & 0b11111);
+                                    switch (bits_11_to_7) {
+                                        // addi16sp
+                                        0b00010 => {
+                                            const imm_value = addi16sp_imm(instruction);
+                                            self.set_register(2, @bitCast(@as(IRegister, @bitCast(self.registers[2])) + imm_value));
+                                            self.pc += instruction_size;
+                                            break :blk .{ .addi16sp_lui = {} };
+                                        },
+                                        else => return error.NotImplemented,
+                                    }
+                                },
                                 .ssas => {
                                     const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
                                     if (std.meta.intToEnum(Instruction01SsasKind, bits_11_to_10)) |inst01_ssas_kind| {
@@ -226,7 +239,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         return error.RV64OnlyInstruction;
                                     }
                                     const sp = self.registers[2];
-                                    const offset = ldsp_uimm_6(instruction);
+                                    const offset = ldsp_uimm(instruction);
                                     const source_address = sp + offset;
                                     const dest_register = rd_16(instruction);
                                     self.set_register(dest_register, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
@@ -256,7 +269,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         return error.RV64OnlyInstruction;
                                     }
                                     const sp = self.registers[2];
-                                    const offset = sdsp_uimm_6(instruction);
+                                    const offset = sdsp_uimm(instruction);
                                     const rs2_register = rs2_16(instruction);
                                     const rs2_value = self.registers[rs2_register];
                                     const dest_address = sp + offset;
@@ -677,6 +690,7 @@ pub const Instruction01Kind = enum(u3) {
     addi = 0b000,
     jal = 0b001,
     li = 0b010,
+    addi16sp_lui = 0b011,
     ssas = 0b100,
     beqz = 0b110,
     bnez = 0b111,
@@ -685,6 +699,7 @@ pub const Instruction01 = union(Instruction01Kind) {
     addi,
     jal,
     li,
+    addi16sp_lui,
     ssas: Instruction01Ssas,
     beqz,
     bnez,
@@ -953,17 +968,25 @@ fn cb_imm(instruction: u16) i16 {
     return sign_extend_16(bits_7_to_6 | bit_5 | bits_4_to_1, 8, sign_bit);
 }
 
-fn ldsp_uimm_6(instruction: u16) u6 {
+fn ldsp_uimm(instruction: u16) u6 {
     const bits_8_to_6 = extract_16(instruction, 2, 0b111) << 6;
     const bit_5 = extract_16(instruction, 12, 0b1) << 5;
     const bits_4_to_3 = extract_16(instruction, 5, 0b11) << 3;
     return @intCast(bits_8_to_6 | bit_5 | bits_4_to_3);
 }
 
-fn sdsp_uimm_6(instruction: u16) u6 {
+fn sdsp_uimm(instruction: u16) u6 {
     const bits_8_to_6 = extract_16(instruction, 7, 0b111) << 6;
     const bits_5_to_3 = extract_16(instruction, 10, 0b111) << 3;
     return @intCast(bits_8_to_6 | bits_5_to_3);
+}
+
+fn addi16sp_imm(instruction: u16) i16 {
+    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
+    const bits_8_to_6 = extract_16(instruction, 2, 0b111) << 6;
+    const bit_5 = extract_16(instruction, 5, 0b1) << 5;
+    const bit_4 = extract_16(instruction, 6, 0b1) << 4;
+    return sign_extend_16(bits_8_to_6 | bit_5 | bit_4, 9, sign_bit);
 }
 
 fn ciw_uimm_8(instruction: u16) u8 {

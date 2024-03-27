@@ -441,7 +441,13 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .lui = {} } } };
                             },
-                            .auipc => return error.NotImplemented,
+                            .auipc => {
+                                const dest_register = rd_32(instruction);
+                                const imm_value = u_uimm_32(instruction);
+                                self.set_register(dest_register, self.pc + imm_value);
+                                self.pc += instruction_size;
+                                return .{ .cont = .{ .inst11 = .{ .auipc = {} } } };
+                            },
                             .branch => {
                                 const source1_register = rs1_32(instruction);
                                 const source2_register = rs2_32(instruction);

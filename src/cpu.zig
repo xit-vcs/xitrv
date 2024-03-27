@@ -201,6 +201,11 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         return error.InvalidInstruction01SsasKind;
                                     }
                                 },
+                                .j => {
+                                    const offset = cj_imm(instruction);
+                                    self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                    break :blk .{ .j = {} };
+                                },
                                 .beqz => {
                                     const source_register = 8 + ((instruction >> 7) & 0b111);
                                     const offset = cb_imm(instruction);
@@ -692,6 +697,7 @@ pub const Instruction01Kind = enum(u3) {
     li = 0b010,
     addi16sp_lui = 0b011,
     ssas = 0b100,
+    j = 0b101,
     beqz = 0b110,
     bnez = 0b111,
 };
@@ -701,6 +707,7 @@ pub const Instruction01 = union(Instruction01Kind) {
     li,
     addi16sp_lui,
     ssas: Instruction01Ssas,
+    j,
     beqz,
     bnez,
 };

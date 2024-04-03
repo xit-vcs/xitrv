@@ -62,28 +62,76 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             if (self.pc == U_MAX) {
                 return .exit;
             }
-            const next_byte = mem[self.pc];
-            const next_bits_1_0: u2 = @intCast(next_byte & 0b11);
-            switch (@as(InstructionKind, @enumFromInt(next_bits_1_0))) {
+
+            const next_byte: packed struct {
+                kind: u2,
+                rest: u6,
+            } = @bitCast(mem[self.pc]);
+
+            switch (@as(InstructionKind, @enumFromInt(next_byte.kind))) {
                 .inst00 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-                    if (std.meta.intToEnum(Instruction00Kind, funct3_16(instruction))) |inst00_kind| {
+                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction: packed struct {
+                        op: u2,
+                        rest: u11,
+                        kind: u3,
+                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+
+                    if (std.meta.intToEnum(Instruction00Kind, instruction.kind)) |inst00_kind| {
                         switch (inst00_kind) {
                             .addi4spn => {
-                                const rd_register = 8 + ((instruction >> 2) & 0b111);
-                                const imm_value = addi4spn_uimm(instruction);
+                                const inst_parts: packed struct {
+                                    rd: u3,
+                                    imm_3: u1,
+                                    imm_2: u1,
+                                    imm_9_to_6: u4,
+                                    imm_5_to_4: u2,
+                                } = @bitCast(instruction.rest);
+                                const Immediate = packed struct {
+                                    rest: u2,
+                                    imm_2: u1,
+                                    imm_3: u1,
+                                    imm_5_to_4: u2,
+                                    imm_9_to_6: u4,
+                                };
+                                const imm_value: u10 = @bitCast(Immediate{
+                                    .rest = 0,
+                                    .imm_2 = inst_parts.imm_2,
+                                    .imm_3 = inst_parts.imm_3,
+                                    .imm_5_to_4 = inst_parts.imm_5_to_4,
+                                    .imm_9_to_6 = inst_parts.imm_9_to_6,
+                                });
+                                const rd_register = 8 + @as(URegister, inst_parts.rd);
                                 self.set_register(rd_register, self.registers[2] + imm_value);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst00 = .{ .addi4spn = {} } } };
                             },
                             .sw => {
-                                const rs1_register = 8 + ((instruction >> 7) & 0b111);
-                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                const inst_parts: packed struct {
+                                    rs2: u3,
+                                    imm_6: u1,
+                                    imm_2: u1,
+                                    rs1: u3,
+                                    imm_5_to_3: u3,
+                                } = @bitCast(instruction.rest);
+                                const Immediate = packed struct {
+                                    rest: u2,
+                                    imm_2: u1,
+                                    imm_5_to_3: u3,
+                                    imm_6: u1,
+                                };
+                                const imm_value: u7 = @bitCast(Immediate{
+                                    .rest = 0,
+                                    .imm_2 = inst_parts.imm_2,
+                                    .imm_5_to_3 = inst_parts.imm_5_to_3,
+                                    .imm_6 = inst_parts.imm_6,
+                                });
+                                const rs1_register = 8 + @as(URegister, inst_parts.rs1);
+                                const rs2_register = 8 + @as(URegister, inst_parts.rs2);
                                 const rs1_value = self.registers[rs1_register];
                                 const rs2_value: u32 = @intCast(self.registers[rs2_register]);
-                                const offset = sw_uimm(instruction);
-                                const dest_address = rs1_value + offset;
+                                const dest_address = rs1_value + imm_value;
                                 @memcpy(mem[dest_address .. dest_address + 4], &std.mem.toBytes(rs2_value));
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst00 = .{ .sw = {} } } };
@@ -96,39 +144,105 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst01 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-                    if (std.meta.intToEnum(Instruction01Kind, funct3_16(instruction))) |inst01_kind| {
+                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction: packed struct {
+                        op: u2,
+                        rest: u11,
+                        kind: u3,
+                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+
+                    if (std.meta.intToEnum(Instruction01Kind, instruction.kind)) |inst01_kind| {
                         const inst01: Instruction01 = blk: {
                             switch (inst01_kind) {
                                 .addi => {
-                                    const register = rd_16(instruction);
-                                    const imm_value = ci_imm(instruction);
-                                    const source_value: IRegister = @bitCast(self.registers[register]);
+                                    const inst_parts: packed struct {
+                                        imm_4_to_0: u5,
+                                        rd: u5,
+                                        imm_5: u1,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        imm_4_to_0: u5,
+                                        imm_5: u1,
+                                    };
+                                    const imm_value: i6 = @bitCast(Immediate{
+                                        .imm_4_to_0 = inst_parts.imm_4_to_0,
+                                        .imm_5 = inst_parts.imm_5,
+                                    });
+                                    const source_value: IRegister = @bitCast(self.registers[inst_parts.rd]);
                                     const new_value = source_value + imm_value;
-                                    self.set_register(register, @bitCast(new_value));
+                                    self.set_register(inst_parts.rd, @bitCast(new_value));
                                     self.pc += instruction_size;
                                     break :blk .{ .addi = {} };
                                 },
                                 .jal => {
-                                    const imm_value = cj_imm(instruction);
+                                    const inst_parts: packed struct {
+                                        imm_5: u1,
+                                        imm_4_to_1: u4,
+                                        imm_11_to_6: u6,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u1,
+                                        imm_4_to_1: u4,
+                                        imm_5: u1,
+                                        imm_11_to_6: u6,
+                                    };
+                                    const imm_value: i12 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_4_to_1 = inst_parts.imm_4_to_1,
+                                        .imm_5 = inst_parts.imm_5,
+                                        .imm_11_to_6 = inst_parts.imm_11_to_6,
+                                    });
                                     const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                     self.set_register(1, self.pc + instruction_size);
                                     self.pc = new_pc;
                                     break :blk .{ .jal = {} };
                                 },
                                 .li => {
-                                    const dest_register = rd_16(instruction);
-                                    const imm_value = ci_imm(instruction);
-                                    self.set_register(dest_register, @intCast(imm_value));
+                                    const inst_parts: packed struct {
+                                        imm_4_to_0: u5,
+                                        rd: u5,
+                                        imm_5: u1,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        imm_4_to_0: u5,
+                                        imm_5: u1,
+                                    };
+                                    const imm_value: i6 = @bitCast(Immediate{
+                                        .imm_4_to_0 = inst_parts.imm_4_to_0,
+                                        .imm_5 = inst_parts.imm_5,
+                                    });
+                                    self.set_register(inst_parts.rd, @intCast(imm_value));
                                     self.pc += instruction_size;
                                     break :blk .{ .li = {} };
                                 },
                                 .addi16sp_lui => {
-                                    const bits_11_to_7: u5 = @intCast((instruction >> 7) & 0b11111);
-                                    switch (bits_11_to_7) {
+                                    const inst_parts: packed struct {
+                                        imm_4_to_0: u5,
+                                        rd: u5,
+                                        imm_5: u1,
+                                    } = @bitCast(instruction.rest);
+                                    switch (inst_parts.rd) {
                                         // addi16sp
                                         0b00010 => {
-                                            const imm_value = addi16sp_imm(instruction);
+                                            const imm_parts: packed struct {
+                                                imm_8_to_6: u3,
+                                                imm_5: u1,
+                                                imm_4: u1,
+                                            } = @bitCast(inst_parts.imm_4_to_0);
+                                            const Immediate = packed struct {
+                                                rest: u4,
+                                                imm_4: u1,
+                                                imm_5: u1,
+                                                imm_8_to_6: u3,
+                                                imm_9: u1,
+                                            };
+                                            const imm_value: i10 = @bitCast(Immediate{
+                                                .rest = 0,
+                                                .imm_4 = imm_parts.imm_4,
+                                                .imm_5 = imm_parts.imm_5,
+                                                .imm_8_to_6 = imm_parts.imm_8_to_6,
+                                                .imm_9 = inst_parts.imm_5,
+                                            });
                                             self.set_register(2, @bitCast(@as(IRegister, @bitCast(self.registers[2])) + imm_value));
                                             self.pc += instruction_size;
                                             break :blk .{ .addi16sp_lui = {} };
@@ -137,23 +251,35 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                 },
                                 .ssas => {
-                                    const bits_11_to_10: u2 = @intCast((instruction >> 10) & 0b11);
-                                    if (std.meta.intToEnum(Instruction01SsasKind, bits_11_to_10)) |inst01_ssas_kind| {
+                                    const inst_parts: packed struct {
+                                        rest_4_to_0: u5,
+                                        rd: u3,
+                                        kind: u2,
+                                        rest_5: u1,
+                                    } = @bitCast(instruction.rest);
+                                    if (std.meta.intToEnum(Instruction01SsasKind, inst_parts.kind)) |inst01_ssas_kind| {
                                         const inst01_ssas: Instruction01Ssas = blk2: {
                                             switch (inst01_ssas_kind) {
                                                 .srli => {
-                                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                    const rd_register = 8 + @as(URegister, inst_parts.rd);
                                                     const new_value = blk3: {
                                                         switch (cpu_kind) {
                                                             .rv32 => {
-                                                                const uimm_value = ci_uimm_5(instruction);
+                                                                const imm_value: u5 = inst_parts.rest_4_to_0;
                                                                 const source_value = self.registers[rd_register];
-                                                                break :blk3 source_value >> uimm_value;
+                                                                break :blk3 source_value >> imm_value;
                                                             },
                                                             .rv64 => {
-                                                                const uimm_value = ci_uimm_6(instruction);
+                                                                const Immediate = packed struct {
+                                                                    imm_4_to_0: u5,
+                                                                    imm_5: u1,
+                                                                };
+                                                                const imm_value: u6 = @bitCast(Immediate{
+                                                                    .imm_4_to_0 = inst_parts.rest_4_to_0,
+                                                                    .imm_5 = inst_parts.rest_5,
+                                                                });
                                                                 const source_value = self.registers[rd_register];
-                                                                break :blk3 source_value >> uimm_value;
+                                                                break :blk3 source_value >> imm_value;
                                                             },
                                                         }
                                                     };
@@ -161,18 +287,25 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                     break :blk2 .{ .srli = {} };
                                                 },
                                                 .srai => {
-                                                    const rd_register = 8 + ((instruction >> 7) & 0b111);
+                                                    const rd_register = 8 + @as(URegister, inst_parts.rd);
                                                     const new_value = blk3: {
                                                         switch (cpu_kind) {
                                                             .rv32 => {
-                                                                const uimm_value = ci_uimm_5(instruction);
+                                                                const imm_value: u5 = inst_parts.rest_4_to_0;
                                                                 const source_value: IRegister = @bitCast(self.registers[rd_register]);
-                                                                break :blk3 source_value >> uimm_value;
+                                                                break :blk3 source_value >> imm_value;
                                                             },
                                                             .rv64 => {
-                                                                const uimm_value = ci_uimm_6(instruction);
+                                                                const Immediate = packed struct {
+                                                                    imm_4_to_0: u5,
+                                                                    imm_5: u1,
+                                                                };
+                                                                const imm_value: u6 = @bitCast(Immediate{
+                                                                    .imm_4_to_0 = inst_parts.rest_4_to_0,
+                                                                    .imm_5 = inst_parts.rest_5,
+                                                                });
                                                                 const source_value: IRegister = @bitCast(self.registers[rd_register]);
-                                                                break :blk3 source_value >> uimm_value;
+                                                                break :blk3 source_value >> imm_value;
                                                             },
                                                         }
                                                     };
@@ -181,19 +314,22 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                 },
                                                 .andi => return error.NotImplemented,
                                                 .sub_and => {
-                                                    const bits_6_to_5: u2 = @intCast((instruction >> 5) & 0b11);
-                                                    if (std.meta.intToEnum(Instruction01SsasSubandKind, bits_6_to_5)) |inst01_ssas_suband_kind| {
+                                                    const rest_4_to_0_parts: packed struct {
+                                                        rs2: u3,
+                                                        kind: u2,
+                                                    } = @bitCast(inst_parts.rest_4_to_0);
+                                                    if (std.meta.intToEnum(Instruction01SsasSubandKind, rest_4_to_0_parts.kind)) |inst01_ssas_suband_kind| {
                                                         switch (inst01_ssas_suband_kind) {
                                                             .sub => {
-                                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                                                const rd_register = 8 + @as(URegister, inst_parts.rd);
+                                                                const rs2_register = 8 + @as(URegister, rest_4_to_0_parts.rs2);
                                                                 const source_value = self.registers[rd_register];
                                                                 const new_value = @subWithOverflow(source_value, self.registers[rs2_register])[0];
                                                                 self.set_register(rd_register, new_value);
                                                             },
                                                             .and_ => {
-                                                                const rd_register = 8 + ((instruction >> 7) & 0b111);
-                                                                const rs2_register = 8 + ((instruction >> 2) & 0b111);
+                                                                const rd_register = 8 + @as(URegister, inst_parts.rd);
+                                                                const rs2_register = 8 + @as(URegister, rest_4_to_0_parts.rs2);
                                                                 const source_value = self.registers[rd_register];
                                                                 const new_value = source_value & self.registers[rs2_register];
                                                                 self.set_register(rd_register, new_value);
@@ -213,25 +349,75 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                 },
                                 .j => {
-                                    const offset = cj_imm(instruction);
-                                    self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                    const inst_parts: packed struct {
+                                        imm_5: u1,
+                                        imm_4_to_1: u4,
+                                        imm_11_to_6: u6,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u1,
+                                        imm_4_to_1: u4,
+                                        imm_5: u1,
+                                        imm_11_to_6: u6,
+                                    };
+                                    const imm_value: i12 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_4_to_1 = inst_parts.imm_4_to_1,
+                                        .imm_5 = inst_parts.imm_5,
+                                        .imm_11_to_6 = inst_parts.imm_11_to_6,
+                                    });
+                                    self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                     break :blk .{ .j = {} };
                                 },
                                 .beqz => {
-                                    const source_register = 8 + ((instruction >> 7) & 0b111);
-                                    const offset = cb_imm(instruction);
+                                    const inst_parts: packed struct {
+                                        imm_5: u1,
+                                        imm_4_to_1: u4,
+                                        rs1: u3,
+                                        imm_8_to_6: u3,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u1,
+                                        imm_4_to_1: u4,
+                                        imm_5: u1,
+                                        imm_8_to_6: u3,
+                                    };
+                                    const imm_value: i9 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_4_to_1 = inst_parts.imm_4_to_1,
+                                        .imm_5 = inst_parts.imm_5,
+                                        .imm_8_to_6 = inst_parts.imm_8_to_6,
+                                    });
+                                    const source_register = 8 + @as(URegister, inst_parts.rs1);
                                     if (self.registers[source_register] == 0) {
-                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                     } else {
                                         self.pc += instruction_size;
                                     }
                                     break :blk .{ .beqz = {} };
                                 },
                                 .bnez => {
-                                    const source_register = 8 + ((instruction >> 7) & 0b111);
-                                    const offset = cb_imm(instruction);
+                                    const inst_parts: packed struct {
+                                        imm_5: u1,
+                                        imm_4_to_1: u4,
+                                        rs1: u3,
+                                        imm_8_to_6: u3,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u1,
+                                        imm_4_to_1: u4,
+                                        imm_5: u1,
+                                        imm_8_to_6: u3,
+                                    };
+                                    const imm_value: i9 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_4_to_1 = inst_parts.imm_4_to_1,
+                                        .imm_5 = inst_parts.imm_5,
+                                        .imm_8_to_6 = inst_parts.imm_8_to_6,
+                                    });
+                                    const source_register = 8 + @as(URegister, inst_parts.rs1);
                                     if (self.registers[source_register] != 0) {
-                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                     } else {
                                         self.pc += instruction_size;
                                     }
@@ -246,49 +432,91 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst10 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction = std.mem.littleToNative(u16, std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]));
-                    if (std.meta.intToEnum(Instruction10Kind, funct3_16(instruction))) |inst10_kind| {
+                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction: packed struct {
+                        op: u2,
+                        rest: u11,
+                        kind: u3,
+                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+
+                    if (std.meta.intToEnum(Instruction10Kind, instruction.kind)) |inst10_kind| {
                         const inst10: Instruction10 = blk: {
                             switch (inst10_kind) {
                                 .ldsp => {
                                     if (cpu_kind != .rv64) {
                                         return error.RV64OnlyInstruction;
                                     }
+                                    const inst_parts: packed struct {
+                                        imm_8_to_6: u3,
+                                        imm_4_to_3: u2,
+                                        rd: u5,
+                                        imm_5: u1,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u3,
+                                        imm_4_to_3: u2,
+                                        imm_5: u1,
+                                        imm_8_to_6: u3,
+                                    };
+                                    const imm_value: u9 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_4_to_3 = inst_parts.imm_4_to_3,
+                                        .imm_5 = inst_parts.imm_5,
+                                        .imm_8_to_6 = inst_parts.imm_8_to_6,
+                                    });
                                     const sp = self.registers[2];
-                                    const offset = ldsp_uimm(instruction);
-                                    const source_address = sp + offset;
-                                    const dest_register = rd_16(instruction);
-                                    self.set_register(dest_register, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                    const source_address = sp + imm_value;
+                                    self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
                                     self.pc += instruction_size;
                                     break :blk .{ .ldsp = {} };
                                 },
                                 .jr_add => {
-                                    const bit_12 = (instruction >> 12) & 0b1;
-                                    if (bit_12 == 0) {
+                                    const inst_parts: packed struct {
+                                        rs2: u5,
+                                        rs1_or_rd: u5,
+                                        kind: u1,
+                                    } = @bitCast(instruction.rest);
+                                    switch (inst_parts.kind) {
                                         // jr
-                                        const source_register = rs1_16(instruction);
-                                        self.pc = self.registers[source_register];
-                                        break :blk .{ .jr_add = .jr };
-                                    } else {
+                                        0 => {
+                                            const rs1_register = inst_parts.rs1_or_rd;
+                                            self.pc = self.registers[rs1_register];
+                                            break :blk .{ .jr_add = .jr };
+                                        },
                                         // add
-                                        const rd_register = rd_16(instruction);
-                                        const rs2_register = rs2_16(instruction);
-                                        const source_value = self.registers[rd_register];
-                                        const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
-                                        self.set_register(rd_register, new_value);
-                                        self.pc += instruction_size;
-                                        break :blk .{ .jr_add = .add };
+                                        1 => {
+                                            const rd_register = inst_parts.rs1_or_rd;
+                                            const rs2_register = inst_parts.rs2;
+                                            const source_value = self.registers[rd_register];
+                                            const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
+                                            self.set_register(rd_register, new_value);
+                                            self.pc += instruction_size;
+                                            break :blk .{ .jr_add = .add };
+                                        },
                                     }
                                 },
                                 .sdsp => {
                                     if (cpu_kind != .rv64) {
                                         return error.RV64OnlyInstruction;
                                     }
+                                    const inst_parts: packed struct {
+                                        rs2: u5,
+                                        imm_8_to_6: u3,
+                                        imm_5_to_3: u3,
+                                    } = @bitCast(instruction.rest);
+                                    const Immediate = packed struct {
+                                        rest: u3,
+                                        imm_5_to_3: u3,
+                                        imm_8_to_6: u3,
+                                    };
+                                    const imm_value: u9 = @bitCast(Immediate{
+                                        .rest = 0,
+                                        .imm_5_to_3 = inst_parts.imm_5_to_3,
+                                        .imm_8_to_6 = inst_parts.imm_8_to_6,
+                                    });
                                     const sp = self.registers[2];
-                                    const offset = sdsp_uimm(instruction);
-                                    const rs2_register = rs2_16(instruction);
-                                    const rs2_value = self.registers[rs2_register];
-                                    const dest_address = sp + offset;
+                                    const rs2_value = self.registers[inst_parts.rs2];
+                                    const dest_address = sp + imm_value;
                                     @memcpy(mem[dest_address .. dest_address + 8], &std.mem.toBytes(rs2_value));
                                     self.pc += instruction_size;
                                     break :blk .{ .sdsp = {} };
@@ -302,63 +530,65 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst11 => {
                     const instruction_size = @sizeOf(u32);
-                    const instruction = std.mem.littleToNative(u32, std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]));
-                    if (std.meta.intToEnum(Instruction11Kind, opcode_32(instruction))) |inst11_kind| {
+                    const instruction_bytes = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction: packed struct {
+                        op: u2,
+                        kind: u5,
+                        rest: u25,
+                    } = @bitCast(std.mem.littleToNative(u32, instruction_bytes));
+
+                    if (std.meta.intToEnum(Instruction11Kind, instruction.kind)) |inst11_kind| {
                         switch (inst11_kind) {
                             .op => {
-                                if (std.meta.intToEnum(Instruction11OpKind, funct7_32(instruction))) |inst11_op_kind| {
+                                const inst_parts: packed struct {
+                                    rest: u18,
+                                    kind: u7,
+                                } = @bitCast(instruction.rest);
+
+                                if (std.meta.intToEnum(Instruction11OpKind, inst_parts.kind)) |inst11_op_kind| {
+                                    const parts: packed struct {
+                                        rd: u5,
+                                        kind: u3,
+                                        rs1: u5,
+                                        rs2: u5,
+                                    } = @bitCast(inst_parts.rest);
+
                                     const inst11_op: Instruction11Op = blk: {
                                         switch (inst11_op_kind) {
                                             .add => {
-                                                const source1_register = rs1_32(instruction);
-                                                const source1_value = self.registers[source1_register];
-                                                const source2_register = rs2_32(instruction);
-                                                const source2_value = self.registers[source2_register];
-                                                const dest_register = rd_32(instruction);
+                                                const source1_value = self.registers[parts.rs1];
+                                                const source2_value = self.registers[parts.rs2];
                                                 const new_value = @addWithOverflow(source1_value, source2_value)[0];
-                                                self.set_register(dest_register, new_value);
+                                                self.set_register(parts.rd, new_value);
                                                 break :blk .{ .add = {} };
                                             },
                                             .sub => {
-                                                const source1_register = rs1_32(instruction);
-                                                const source1_value = self.registers[source1_register];
-                                                const source2_register = rs2_32(instruction);
-                                                const source2_value = self.registers[source2_register];
-                                                const dest_register = rd_32(instruction);
+                                                const source1_value = self.registers[parts.rs1];
+                                                const source2_value = self.registers[parts.rs2];
                                                 const new_value = @subWithOverflow(source1_value, source2_value)[0];
-                                                self.set_register(dest_register, new_value);
+                                                self.set_register(parts.rd, new_value);
                                                 break :blk .{ .sub = {} };
                                             },
                                             .m_ext => {
-                                                const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
-                                                if (std.meta.intToEnum(Instruction11OpMextKind, bits_14_to_12)) |inst11_op_mext_kind| {
+                                                if (std.meta.intToEnum(Instruction11OpMextKind, parts.kind)) |inst11_op_mext_kind| {
                                                     switch (inst11_op_mext_kind) {
                                                         .mul => {
-                                                            const source1_register = rs1_32(instruction);
-                                                            const source1_value: IRegister = @bitCast(self.registers[source1_register]);
-                                                            const source2_register = rs2_32(instruction);
-                                                            const source2_value: IRegister = @bitCast(self.registers[source2_register]);
-                                                            const dest_register = rd_32(instruction);
+                                                            const source1_value: IRegister = @bitCast(self.registers[parts.rs1]);
+                                                            const source2_value: IRegister = @bitCast(self.registers[parts.rs2]);
                                                             const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                            self.set_register(dest_register, @bitCast(new_value));
+                                                            self.set_register(parts.rd, @bitCast(new_value));
                                                         },
                                                         .divu => {
-                                                            const source1_register = rs1_32(instruction);
-                                                            const source1_value = self.registers[source1_register];
-                                                            const source2_register = rs2_32(instruction);
-                                                            const source2_value = self.registers[source2_register];
-                                                            const dest_register = rd_32(instruction);
+                                                            const source1_value = self.registers[parts.rs1];
+                                                            const source2_value = self.registers[parts.rs2];
                                                             const new_value = source1_value / source2_value;
-                                                            self.set_register(dest_register, new_value);
+                                                            self.set_register(parts.rd, new_value);
                                                         },
                                                         .mulhu => {
-                                                            const source1_register = rs1_32(instruction);
-                                                            const source1_value: URegisterDouble = self.registers[source1_register];
-                                                            const source2_register = rs2_32(instruction);
-                                                            const source2_value: URegisterDouble = self.registers[source2_register];
-                                                            const dest_register = rd_32(instruction);
+                                                            const source1_value: URegisterDouble = self.registers[parts.rs1];
+                                                            const source2_value: URegisterDouble = self.registers[parts.rs2];
                                                             const new_value = (source1_value * source2_value) >> @bitSizeOf(URegister);
-                                                            self.set_register(dest_register, @intCast(new_value));
+                                                            self.set_register(parts.rd, @intCast(new_value));
                                                         },
                                                     }
                                                     break :blk .{ .m_ext = inst11_op_mext_kind };
@@ -375,50 +605,65 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .op_imm => {
-                                if (std.meta.intToEnum(Instruction11OpImmKind, funct3_32(instruction))) |inst11_op_imm_kind| {
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    kind: u3,
+                                    rest: u17,
+                                } = @bitCast(instruction.rest);
+
+                                if (std.meta.intToEnum(Instruction11OpImmKind, inst_parts.kind)) |inst11_op_imm_kind| {
                                     switch (inst11_op_imm_kind) {
                                         .addi => {
-                                            const source_register = rs1_32(instruction);
-                                            const dest_register = rd_32(instruction);
-                                            const imm_value = i_imm_32(instruction);
-                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                            const new_value = source_value + imm_value;
-                                            self.set_register(dest_register, @bitCast(new_value));
+                                            const parts: packed struct {
+                                                rs1: u5,
+                                                imm: i12,
+                                            } = @bitCast(inst_parts.rest);
+                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
+                                            const new_value = source_value + parts.imm;
+                                            self.set_register(inst_parts.rd, @bitCast(new_value));
                                         },
                                         .slli => {
-                                            const source_register = rs1_32(instruction);
-                                            const dest_register = rd_32(instruction);
                                             const new_value = blk: {
                                                 switch (cpu_kind) {
                                                     .rv32 => {
-                                                        const imm_value = i_uimm_5(instruction);
-                                                        const source_value = self.registers[source_register];
-                                                        break :blk source_value << imm_value;
+                                                        const parts: packed struct {
+                                                            rs1: u5,
+                                                            imm: u5,
+                                                            rest: u7,
+                                                        } = @bitCast(inst_parts.rest);
+                                                        const source_value = self.registers[parts.rs1];
+                                                        break :blk source_value << parts.imm;
                                                     },
                                                     .rv64 => {
-                                                        const imm_value = i_uimm_6(instruction);
-                                                        const source_value = self.registers[source_register];
-                                                        break :blk source_value << imm_value;
+                                                        const parts: packed struct {
+                                                            rs1: u5,
+                                                            imm: u6,
+                                                            rest: u6,
+                                                        } = @bitCast(inst_parts.rest);
+                                                        const source_value = self.registers[parts.rs1];
+                                                        break :blk source_value << parts.imm;
                                                     },
                                                 }
                                             };
-                                            self.set_register(dest_register, @bitCast(new_value));
+                                            self.set_register(inst_parts.rd, @bitCast(new_value));
                                         },
                                         .sltiu => {
-                                            const source_register = rs1_32(instruction);
-                                            const dest_register = rd_32(instruction);
-                                            const imm_value = i_imm_32(instruction);
-                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                            const new_value: u32 = if (source_value < imm_value) 1 else 0;
-                                            self.set_register(dest_register, new_value);
+                                            const parts: packed struct {
+                                                rs1: u5,
+                                                imm: i12,
+                                            } = @bitCast(inst_parts.rest);
+                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
+                                            const new_value: u32 = if (source_value < parts.imm) 1 else 0;
+                                            self.set_register(inst_parts.rd, new_value);
                                         },
                                         .andi => {
-                                            const source_register = rs1_32(instruction);
-                                            const dest_register = rd_32(instruction);
-                                            const imm_value = i_imm_32(instruction);
-                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                            const new_value = source_value & imm_value;
-                                            self.set_register(dest_register, @bitCast(new_value));
+                                            const parts: packed struct {
+                                                rs1: u5,
+                                                imm: i12,
+                                            } = @bitCast(inst_parts.rest);
+                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
+                                            const new_value = source_value & parts.imm;
+                                            self.set_register(inst_parts.rd, @bitCast(new_value));
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -428,52 +673,98 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .jal => {
-                                const dest_register = rd_32(instruction);
-                                const imm_value = j_imm_32(instruction);
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    imm_19_to_12: u8,
+                                    imm_11: u1,
+                                    imm_10_to_1: u10,
+                                    imm_20: u1,
+                                } = @bitCast(instruction.rest);
+                                const Immediate = packed struct {
+                                    rest: u1,
+                                    imm_10_to_1: u10,
+                                    imm_11: u1,
+                                    imm_19_to_12: u8,
+                                    imm_20: u1,
+                                };
+                                const imm_value: i21 = @bitCast(Immediate{
+                                    .rest = 0,
+                                    .imm_10_to_1 = inst_parts.imm_10_to_1,
+                                    .imm_11 = inst_parts.imm_11,
+                                    .imm_19_to_12 = inst_parts.imm_19_to_12,
+                                    .imm_20 = inst_parts.imm_20,
+                                });
                                 const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
-                                self.set_register(dest_register, self.pc + instruction_size);
+                                self.set_register(inst_parts.rd, self.pc + instruction_size);
                                 self.pc = new_pc;
                                 return .{ .cont = .{ .inst11 = .{ .jal = {} } } };
                             },
                             .jalr => {
-                                const source_register = rs1_32(instruction);
-                                const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                const dest_register = rd_32(instruction);
-                                const imm_value = i_imm_32(instruction);
-                                const new_pc = @as(URegister, @intCast(source_value + imm_value)) & ~@as(URegister, 1);
-                                self.set_register(dest_register, self.pc + instruction_size);
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    kind: u3,
+                                    rs1: u5,
+                                    imm: i12,
+                                } = @bitCast(instruction.rest);
+                                const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
+                                const new_pc = @as(URegister, @intCast(source_value + inst_parts.imm)) & ~@as(URegister, 1);
+                                self.set_register(inst_parts.rd, self.pc + instruction_size);
                                 self.pc = new_pc;
                                 return .{ .cont = .{ .inst11 = .{ .jalr = {} } } };
                             },
                             .lui => {
-                                const dest_register = rd_32(instruction);
-                                const imm_value = u_uimm_32(instruction);
-                                self.set_register(dest_register, imm_value);
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    imm: u20,
+                                } = @bitCast(instruction.rest);
+                                self.set_register(inst_parts.rd, inst_parts.imm);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .lui = {} } } };
                             },
                             .auipc => {
-                                const dest_register = rd_32(instruction);
-                                const imm_value = u_uimm_32(instruction);
-                                self.set_register(dest_register, self.pc + imm_value);
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    imm: u20,
+                                } = @bitCast(instruction.rest);
+                                self.set_register(inst_parts.rd, self.pc + inst_parts.imm);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .auipc = {} } } };
                             },
                             .branch => {
-                                const source1_register = rs1_32(instruction);
-                                const source2_register = rs2_32(instruction);
-                                const offset = b_imm_32(instruction);
-                                if (std.meta.intToEnum(Instruction11BranchKind, funct3_32(instruction))) |inst11_branch_kind| {
+                                const inst_parts: packed struct {
+                                    imm_11: u1,
+                                    imm_4_to_1: u4,
+                                    kind: u3,
+                                    rs1: u5,
+                                    rs2: u5,
+                                    imm_10_to_5: u6,
+                                    imm_12: u1,
+                                } = @bitCast(instruction.rest);
+                                const Immediate = packed struct {
+                                    rest: u1,
+                                    imm_4_to_1: u4,
+                                    imm_10_to_5: u6,
+                                    imm_11: u1,
+                                    imm_12: u1,
+                                };
+                                const imm_value: i13 = @bitCast(Immediate{
+                                    .rest = 0,
+                                    .imm_4_to_1 = inst_parts.imm_4_to_1,
+                                    .imm_10_to_5 = inst_parts.imm_10_to_5,
+                                    .imm_11 = inst_parts.imm_11,
+                                    .imm_12 = inst_parts.imm_12,
+                                });
+                                if (std.meta.intToEnum(Instruction11BranchKind, inst_parts.kind)) |inst11_branch_kind| {
                                     const cond = switch (inst11_branch_kind) {
-                                        .beq => @as(IRegister, @bitCast(self.registers[source1_register])) == @as(IRegister, @bitCast(self.registers[source2_register])),
-                                        .bne => @as(IRegister, @bitCast(self.registers[source1_register])) != @as(IRegister, @bitCast(self.registers[source2_register])),
-                                        .blt => @as(IRegister, @bitCast(self.registers[source1_register])) < @as(IRegister, @bitCast(self.registers[source2_register])),
-                                        .bge => @as(IRegister, @bitCast(self.registers[source1_register])) >= @as(IRegister, @bitCast(self.registers[source2_register])),
-                                        .bltu => self.registers[source1_register] < self.registers[source2_register],
-                                        .bgeu => self.registers[source1_register] >= self.registers[source2_register],
+                                        .beq => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) == @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
+                                        .bne => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) != @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
+                                        .blt => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) < @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
+                                        .bge => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) >= @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
+                                        .bltu => self.registers[inst_parts.rs1] < self.registers[inst_parts.rs2],
+                                        .bgeu => self.registers[inst_parts.rs1] >= self.registers[inst_parts.rs2],
                                     };
                                     if (cond) {
-                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + offset);
+                                        self.pc = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
                                     } else {
                                         self.pc += instruction_size;
                                     }
@@ -483,23 +774,27 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .load => {
-                                const source_register = rs1_32(instruction);
-                                const offset = i_imm_32(instruction);
-                                const dest_register = rd_32(instruction);
-                                const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[source_register])) + offset);
-                                if (std.meta.intToEnum(Instruction11LoadKind, funct3_32(instruction))) |inst11_load_kind| {
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    kind: u3,
+                                    rs1: u5,
+                                    imm: i12,
+                                } = @bitCast(instruction.rest);
+                                const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[inst_parts.rs1])) + inst_parts.imm);
+
+                                if (std.meta.intToEnum(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
-                                        .lb => self.set_register(dest_register, @bitCast(@as(IRegister, mem[source_address]))),
-                                        .lh => self.set_register(dest_register, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
-                                        .lw => self.set_register(dest_register, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
+                                        .lb => self.set_register(inst_parts.rd, @bitCast(@as(IRegister, mem[source_address]))),
+                                        .lh => self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
+                                        .lw => self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
                                         .ld => {
                                             if (cpu_kind != .rv64) {
                                                 return error.RV64OnlyInstruction;
                                             }
-                                            self.set_register(dest_register, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                            self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
                                         },
-                                        .lbu => self.set_register(dest_register, mem[source_address]),
-                                        .lhu => self.set_register(dest_register, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
+                                        .lbu => self.set_register(inst_parts.rd, mem[source_address]),
+                                        .lhu => self.set_register(inst_parts.rd, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };
@@ -508,11 +803,25 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .store => {
-                                const dest_register = rs1_32(instruction);
-                                const offset = s_imm_32(instruction);
-                                const dest_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[dest_register])) + offset);
-                                const source_value = self.registers[rs2_32(instruction)];
-                                if (std.meta.intToEnum(Instruction11StoreKind, funct3_32(instruction))) |inst11_store_kind| {
+                                const inst_parts: packed struct {
+                                    imm_4_to_0: u5,
+                                    kind: u3,
+                                    rs1: u5,
+                                    rs2: u5,
+                                    imm_11_to_5: u7,
+                                } = @bitCast(instruction.rest);
+                                const Immediate = packed struct {
+                                    imm_4_to_0: u5,
+                                    imm_11_to_5: u7,
+                                };
+                                const imm_value: i12 = @bitCast(Immediate{
+                                    .imm_4_to_0 = inst_parts.imm_4_to_0,
+                                    .imm_11_to_5 = inst_parts.imm_11_to_5,
+                                });
+                                const dest_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[inst_parts.rs1])) + imm_value);
+                                const source_value = self.registers[inst_parts.rs2];
+
+                                if (std.meta.intToEnum(Instruction11StoreKind, inst_parts.kind)) |inst11_store_kind| {
                                     switch (inst11_store_kind) {
                                         .sb => mem[dest_address] = @intCast(source_value),
                                         .sh => {
@@ -538,10 +847,17 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             },
                             .fence => return error.NotImplemented,
                             .system => {
-                                if (std.meta.intToEnum(Instruction11SystemKind, funct3_32(instruction))) |inst11_system_kind| {
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    kind: u3,
+                                    rs1: u5,
+                                    imm: u12,
+                                } = @bitCast(instruction.rest);
+
+                                if (std.meta.intToEnum(Instruction11SystemKind, inst_parts.kind)) |inst11_system_kind| {
                                     switch (inst11_system_kind) {
                                         .ecall_ebreak => {
-                                            switch (i_imm_32(instruction)) {
+                                            switch (inst_parts.imm) {
                                                 // ecall
                                                 0 => {
                                                     self.pc += instruction_size;
@@ -555,74 +871,62 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             }
                                         },
                                         .csrrw => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register = rs1_32(instruction);
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             try self.set_csr(csr_address, source_value);
                                         },
                                         .csrrs => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register = rs1_32(instruction);
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
                                                 try self.set_csr(csr_address, csr_value | source_value);
                                             }
                                         },
                                         .csrrc => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register = rs1_32(instruction);
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
                                                 try self.set_csr(csr_address, csr_value & (~source_value));
                                             }
                                         },
                                         .csrrwi => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register: URegister = @intCast(rs1_32(instruction));
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             try self.set_csr(csr_address, source_value);
                                         },
                                         .csrrsi => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register: URegister = @intCast(rs1_32(instruction));
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
                                                 try self.set_csr(csr_address, csr_value | source_value);
                                             }
                                         },
                                         .csrrci => {
-                                            const csr_address: usize = csr_32(instruction);
+                                            const csr_address = inst_parts.imm;
                                             const csr_value = try self.get_csr(csr_address);
-                                            const source_register: URegister = @intCast(rs1_32(instruction));
-                                            const source_value = self.registers[source_register];
-                                            const dest_register = rd_32(instruction);
-                                            if (dest_register != 0) {
-                                                self.set_register(dest_register, csr_value);
+                                            const source_value = self.registers[inst_parts.rs1];
+                                            if (inst_parts.rd != 0) {
+                                                self.set_register(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
                                                 try self.set_csr(csr_address, csr_value & (~source_value));
@@ -636,16 +940,19 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .rv64i => {
-                                const bits_14_to_12: u3 = @intCast((instruction >> 12) & 0b111);
-                                if (std.meta.intToEnum(Instruction11RV64IKind, bits_14_to_12)) |inst11_rv64i_kind| {
+                                const inst_parts: packed struct {
+                                    rd: u5,
+                                    kind: u3,
+                                    rs1: u5,
+                                    imm: i12,
+                                } = @bitCast(instruction.rest);
+
+                                if (std.meta.intToEnum(Instruction11RV64IKind, inst_parts.kind)) |inst11_rv64i_kind| {
                                     switch (inst11_rv64i_kind) {
                                         .addiw => {
-                                            const source_register = rs1_32(instruction);
-                                            const dest_register = rd_32(instruction);
-                                            const imm_value = i_imm_32(instruction);
-                                            const source_value: IRegister = @bitCast(self.registers[source_register]);
-                                            const new_value = @addWithOverflow(source_value, imm_value)[0];
-                                            self.set_register(dest_register, @bitCast(new_value));
+                                            const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
+                                            const new_value = @addWithOverflow(source_value, inst_parts.imm)[0];
+                                            self.set_register(inst_parts.rd, @bitCast(new_value));
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -760,19 +1067,19 @@ pub const Instruction10JraddKind = enum {
     jr,
     add,
 };
-pub const Instruction11Kind = enum(u7) {
-    op = 0b01100_11,
-    op_imm = 0b00100_11,
-    jal = 0b11011_11,
-    jalr = 0b11001_11,
-    lui = 0b01101_11,
-    auipc = 0b00101_11,
-    branch = 0b11000_11,
-    load = 0b00000_11,
-    store = 0b01000_11,
-    fence = 0b00011_11,
-    system = 0b11100_11,
-    rv64i = 0b00110_11,
+pub const Instruction11Kind = enum(u5) {
+    op = 0b01100,
+    op_imm = 0b00100,
+    jal = 0b11011,
+    jalr = 0b11001,
+    lui = 0b01101,
+    auipc = 0b00101,
+    branch = 0b11000,
+    load = 0b00000,
+    store = 0b01000,
+    fence = 0b00011,
+    system = 0b11100,
+    rv64i = 0b00110,
 };
 pub const Instruction11 = union(Instruction11Kind) {
     op: Instruction11Op,
@@ -843,189 +1150,3 @@ pub const Instruction11SystemKind = enum(u3) {
 pub const Instruction11RV64IKind = enum(u3) {
     addiw = 0b000,
 };
-
-const SIGN_BIT_32: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
-const SIGN_BIT_16: u32 = 0b1000_0000_0000_0000;
-const C_20_BITS: u32 = 0b1111_1111_1111_1111_1111;
-const C_11_BITS: u32 = 0b111_1111_1111;
-const C_10_BITS: u32 = 0b11_1111_1111;
-const C_8_BITS: u32 = 0b1111_1111;
-const C_7_BITS: u32 = 0b111_1111;
-const C_6_BITS: u32 = 0b11_1111;
-const C_5_BITS: u32 = 0b1_1111;
-
-fn extract_32(value: u32, shift: u5, mask: u32) u32 {
-    return (value >> shift) & mask;
-}
-
-fn extract_16(value: u16, shift: u4, mask: u16) u16 {
-    return (value >> shift) & mask;
-}
-
-fn opcode_32(instruction: u32) u7 {
-    return @intCast(extract_32(instruction, 0, C_7_BITS));
-}
-
-fn rd_32(instruction: u32) u5 {
-    return @intCast(extract_32(instruction, 7, C_5_BITS));
-}
-
-fn rd_16(instruction: u16) u5 {
-    return @intCast(extract_16(instruction, 7, C_5_BITS));
-}
-
-fn rs1_32(instruction: u32) u5 {
-    return @intCast(extract_32(instruction, 15, C_5_BITS));
-}
-
-fn rs1_16(instruction: u16) u5 {
-    return @intCast(extract_16(instruction, 7, C_5_BITS));
-}
-
-fn rs2_32(instruction: u32) u5 {
-    return @intCast(extract_32(instruction, 20, C_5_BITS));
-}
-
-fn rs2_16(instruction: u16) u5 {
-    return @intCast(extract_16(instruction, 2, C_5_BITS));
-}
-
-fn funct3_16(instruction: u16) u3 {
-    return @intCast(extract_16(instruction, 13, 0b111));
-}
-
-fn funct3_32(instruction: u32) u3 {
-    return @intCast(extract_32(instruction, 12, 0b111));
-}
-
-fn funct7_32(instruction: u32) u7 {
-    return @intCast(extract_32(instruction, 25, C_7_BITS));
-}
-
-fn csr_32(instruction: u32) u32 {
-    return extract_32(instruction, 20, 0b1111_1111_1111);
-}
-
-fn sign_extend_32(raw_value: u32, bits: u5, sign_bit: bool) i32 {
-    const bit_mask = (@as(u32, 1) << bits) - 1;
-    const sign_mask = ~bit_mask;
-    const extension = if (sign_bit) sign_mask else 0;
-    return @bitCast((raw_value & bit_mask) | extension);
-}
-
-fn sign_extend_16(raw_value: u16, bits: u4, sign_bit: bool) i16 {
-    const bit_mask = (@as(u16, 1) << bits) - 1;
-    const sign_mask = ~bit_mask;
-    const extension = if (sign_bit) sign_mask else 0;
-    return @bitCast((raw_value & bit_mask) | extension);
-}
-
-fn i_imm_32(instruction: u32) i32 {
-    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
-    const raw_value = extract_32(instruction, 20, C_11_BITS);
-    return sign_extend_32(raw_value, 11, sign_bit);
-}
-
-fn i_uimm_5(instruction: u32) u5 {
-    return @intCast(extract_32(instruction, 20, C_5_BITS));
-}
-
-fn i_uimm_6(instruction: u32) u6 {
-    return @intCast(extract_32(instruction, 20, C_6_BITS));
-}
-
-fn s_imm_32(instruction: u32) i32 {
-    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
-    const upper_6_bits = extract_32(instruction, 25, C_6_BITS) << 5;
-    const lower_5_bits = extract_32(instruction, 7, C_5_BITS);
-    return sign_extend_32(upper_6_bits | lower_5_bits, 11, sign_bit);
-}
-
-fn b_imm_32(instruction: u32) i32 {
-    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
-    const bit_11 = extract_32(instruction, 7, 0b1) << 11;
-    const bits_10_to_5 = extract_32(instruction, 25, C_6_BITS) << 5;
-    const bits_4_to_1 = extract_32(instruction, 8, 0b1111) << 1;
-    return sign_extend_32(bit_11 | bits_10_to_5 | bits_4_to_1, 12, sign_bit);
-}
-
-fn j_imm_32(instruction: u32) i32 {
-    const sign_bit = extract_32(instruction, 0, SIGN_BIT_32) != 0;
-    const bit_11 = extract_32(instruction, 20, 0b1) << 11;
-    const bits_10_to_1 = extract_32(instruction, 21, C_10_BITS) << 1;
-    const bits_19_to_12 = extract_32(instruction, 12, C_8_BITS) << 12;
-    return sign_extend_32(bits_19_to_12 | bit_11 | bits_10_to_1, 20, sign_bit);
-}
-
-fn u_uimm_32(instruction: u32) u32 {
-    return extract_32(instruction, 12, C_20_BITS) << 12;
-}
-
-fn ci_imm(instruction: u16) i16 {
-    const sign_bit = extract_16(instruction, 11, 0b1) != 0;
-    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
-    return sign_extend_16(bits_4_to_0, 5, sign_bit);
-}
-
-fn ci_uimm_5(instruction: u16) u5 {
-    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
-    return @intCast(bits_4_to_0);
-}
-
-fn ci_uimm_6(instruction: u16) u6 {
-    const bit_5 = extract_16(instruction, 11, 0b1) << 5;
-    const bits_4_to_0 = extract_16(instruction, 2, C_5_BITS);
-    return @intCast(bit_5 | bits_4_to_0);
-}
-
-fn cj_imm(instruction: u16) i16 {
-    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
-    const bits_11_to_6 = extract_16(instruction, 7, C_6_BITS) << 6;
-    const bit_5 = extract_16(instruction, 2, 0b1) << 5;
-    const bits_4_to_1 = extract_16(instruction, 3, 0b1111) << 1;
-    return sign_extend_16(bits_11_to_6 | bit_5 | bits_4_to_1, 12, sign_bit);
-}
-
-fn cb_imm(instruction: u16) i16 {
-    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
-    const bits_7_to_6 = extract_16(instruction, 10, 0b11) << 6;
-    const bit_5 = extract_16(instruction, 2, 0b1) << 5;
-    const bits_4_to_1 = extract_16(instruction, 3, 0b1111) << 1;
-    return sign_extend_16(bits_7_to_6 | bit_5 | bits_4_to_1, 8, sign_bit);
-}
-
-fn ldsp_uimm(instruction: u16) u6 {
-    const bits_8_to_6 = extract_16(instruction, 2, 0b111) << 6;
-    const bit_5 = extract_16(instruction, 12, 0b1) << 5;
-    const bits_4_to_3 = extract_16(instruction, 5, 0b11) << 3;
-    return @intCast(bits_8_to_6 | bit_5 | bits_4_to_3);
-}
-
-fn sdsp_uimm(instruction: u16) u6 {
-    const bits_8_to_6 = extract_16(instruction, 7, 0b111) << 6;
-    const bits_5_to_3 = extract_16(instruction, 10, 0b111) << 3;
-    return @intCast(bits_8_to_6 | bits_5_to_3);
-}
-
-fn addi16sp_imm(instruction: u16) i16 {
-    const sign_bit = extract_16(instruction, 12, 0b1) != 0;
-    const bits_8_to_6 = extract_16(instruction, 2, 0b111) << 6;
-    const bit_5 = extract_16(instruction, 5, 0b1) << 5;
-    const bit_4 = extract_16(instruction, 6, 0b1) << 4;
-    return sign_extend_16(bits_8_to_6 | bit_5 | bit_4, 9, sign_bit);
-}
-
-fn addi4spn_uimm(instruction: u16) u16 {
-    const bits_9_to_6 = extract_16(instruction, 7, 0b1111) << 6;
-    const bits_5_to_4 = extract_16(instruction, 11, 0b11) << 4;
-    const bit_3 = extract_16(instruction, 5, 0b1) << 3;
-    const bit_2 = extract_16(instruction, 6, 0b1) << 2;
-    return bits_9_to_6 | bits_5_to_4 | bit_3 | bit_2;
-}
-
-fn sw_uimm(instruction: u16) u16 {
-    const bit_6 = extract_16(instruction, 5, 0b1) << 6;
-    const bits_5_to_3 = extract_16(instruction, 10, 0b111) << 3;
-    const bit_2 = extract_16(instruction, 6, 0b1) << 2;
-    return bit_6 | bits_5_to_3 | bit_2;
-}

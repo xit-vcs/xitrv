@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
 
     const test_lib = b.addSharedLibrary(.{
         .name = "test",
-        .root_source_file = .{ .path = "src/test/lib.zig" },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/test/lib.zig" } },
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .riscv64,
             .os_tag = .linux,
@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     const install_test_lib = b.addInstallArtifact(test_lib, .{});
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/test.zig" },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/test.zig" } },
         .target = target,
         .optimize = optimize,
     });

@@ -1,6 +1,7 @@
 const std = @import("std");
-const Cpu = @import("./cpu.zig").Cpu;
-const Elf = @import("./elf.zig").Elf;
+const xitrv = @import("./lib.zig");
+const Cpu = xitrv.cpu.Cpu;
+const Elf = xitrv.elf.Elf;
 
 test "create cpu" {
     const hello_world = @embedFile("test/bin/hello_world");

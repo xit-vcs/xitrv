@@ -4,6 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const xitrv = b.addModule("xitrv", .{
+        .root_source_file = b.path("src/lib.zig"),
+    });
+
     const test_lib = b.addSharedLibrary(.{
         .name = "test",
         .root_source_file = b.path("src/test/lib.zig"),
@@ -21,6 +25,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    unit_tests.root_module.addImport("xitrv", xitrv);
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&install_test_lib.step);

@@ -1,5 +1,5 @@
 const std = @import("std");
-const xitrv = @import("./lib.zig");
+const xitrv = @import("xitrv");
 const Cpu = xitrv.cpu.Cpu;
 const Elf = xitrv.elf.Elf;
 

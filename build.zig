@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     });
     unit_tests.root_module.addImport("xitrv", xitrv);
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    run_unit_tests.has_side_effects = true;
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&install_test_lib.step);
     test_step.dependOn(&run_unit_tests.step);

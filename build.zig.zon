@@ -1,5 +1,5 @@
 .{
-    .name = "xitrv",
+    .name = .xitrv,
     .version = "0.0.0",
     .dependencies = .{},
     .paths = .{
@@ -8,4 +8,5 @@
         "src",
         "LICENSE",
     },
+    .fingerprint = 0xbe39eb6b438496fa,
 }

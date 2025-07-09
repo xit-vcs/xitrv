@@ -706,10 +706,16 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rs1: u5,
                                     imm: i12,
                                 } = @bitCast(instruction.rest);
-                                const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
-                                const new_pc = @as(URegister, @intCast(source_value + inst_parts.imm)) & ~@as(URegister, 1);
-                                self.set_register(inst_parts.rd, self.pc + instruction_size);
-                                self.pc = new_pc;
+                                if (self.registers[inst_parts.rs1] == U_MAX) {
+                                    // TODO: this is a hack...if rs1 contains the return address, just set pc to it so we exit
+                                    self.set_register(inst_parts.rd, self.pc + instruction_size);
+                                    self.pc = self.registers[inst_parts.rs1];
+                                } else {
+                                    const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
+                                    const new_pc = @as(URegister, @intCast(source_value + inst_parts.imm)) & ~@as(URegister, 1);
+                                    self.set_register(inst_parts.rd, self.pc + instruction_size);
+                                    self.pc = new_pc;
+                                }
                                 return .{ .cont = .{ .inst11 = .{ .jalr = {} } } };
                             },
                             .lui => {

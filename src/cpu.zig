@@ -78,6 +78,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
 
+                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction00Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction00Kind, instruction.kind)) |inst00_kind| {
                         switch (inst00_kind) {
                             .addi4spn => {
@@ -151,6 +152,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
 
+                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction01Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction01Kind, instruction.kind)) |inst01_kind| {
                         const inst01: Instruction01 = blk: {
                             switch (inst01_kind) {
@@ -439,6 +441,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
 
+                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction10Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction10Kind, instruction.kind)) |inst10_kind| {
                         const inst10: Instruction10 = blk: {
                             switch (inst10_kind) {
@@ -537,6 +540,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         rest: u25,
                     } = @bitCast(std.mem.littleToNative(u32, instruction_bytes));
 
+                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction11Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction11Kind, instruction.kind)) |inst11_kind| {
                         switch (inst11_kind) {
                             .op => {

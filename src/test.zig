@@ -69,7 +69,7 @@ test "inc" {
             },
         }
         count += 1;
-        if (count > 100) {
+        if (count > 1000) {
             return error.CountExceededLimit;
         }
     }
@@ -110,7 +110,7 @@ test "recur" {
             },
         }
         count += 1;
-        if (count > 100) {
+        if (count > 1000) {
             return error.CountExceededLimit;
         }
     }

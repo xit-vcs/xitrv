@@ -46,7 +46,7 @@ test "inc" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 500_000);
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 1_000_000);
     defer mem.deinit();
     mem.expandToCapacity();
 
@@ -87,7 +87,7 @@ test "recur" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 500_000);
+    var mem = try std.ArrayList(u8).initCapacity(allocator, 1_000_000);
     defer mem.deinit();
     mem.expandToCapacity();
 

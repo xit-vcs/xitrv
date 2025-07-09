@@ -13,6 +13,14 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/test/lib.zig"),
         .target = b.resolveTargetQuery(.{
             .cpu_arch = .riscv64,
+            .cpu_model = .baseline,
+            .cpu_features_sub = blk: {
+                // temporarily disable compressed instructions
+                const FeatureSet = std.Target.Cpu.Feature.Set;
+                var features = FeatureSet.empty;
+                features.addFeature(@intFromEnum(std.Target.riscv.Feature.c));
+                break :blk features;
+            },
             .os_tag = .linux,
             .ofmt = .elf,
         }),

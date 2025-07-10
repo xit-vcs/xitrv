@@ -71,12 +71,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             switch (@as(InstructionKind, @enumFromInt(next_byte.kind))) {
                 .inst00 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction_int = std.mem.readInt(u16, mem[self.pc..][0..instruction_size], .little);
                     const instruction: packed struct {
                         op: u2,
                         rest: u11,
                         kind: u3,
-                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+                    } = @bitCast(instruction_int);
 
                     //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction00Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction00Kind, instruction.kind)) |inst00_kind| {
@@ -145,12 +145,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst01 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction_int = std.mem.readInt(u16, mem[self.pc..][0..instruction_size], .little);
                     const instruction: packed struct {
                         op: u2,
                         rest: u11,
                         kind: u3,
-                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+                    } = @bitCast(instruction_int);
 
                     //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction01Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction01Kind, instruction.kind)) |inst01_kind| {
@@ -434,12 +434,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst10 => {
                     const instruction_size = @sizeOf(u16);
-                    const instruction_bytes = std.mem.bytesToValue(u16, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction_int = std.mem.readInt(u16, mem[self.pc..][0..instruction_size], .little);
                     const instruction: packed struct {
                         op: u2,
                         rest: u11,
                         kind: u3,
-                    } = @bitCast(std.mem.littleToNative(u16, instruction_bytes));
+                    } = @bitCast(instruction_int);
 
                     //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction10Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction10Kind, instruction.kind)) |inst10_kind| {
@@ -469,7 +469,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     });
                                     const sp = self.registers[2];
                                     const source_address = sp + imm_value;
-                                    self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                    self.setRegister(inst_parts.rd, @bitCast(std.mem.readInt(URegister, mem[source_address..][0..8], .little)));
                                     self.pc += instruction_size;
                                     break :blk .{ .ldsp = {} };
                                 },
@@ -533,12 +533,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                 },
                 .inst11 => {
                     const instruction_size = @sizeOf(u32);
-                    const instruction_bytes = std.mem.bytesToValue(u32, mem[self.pc .. self.pc + instruction_size]);
+                    const instruction_int = std.mem.readInt(u32, mem[self.pc..][0..instruction_size], .little);
                     const instruction: packed struct {
                         op: u2,
                         kind: u5,
                         rest: u25,
-                    } = @bitCast(std.mem.littleToNative(u32, instruction_bytes));
+                    } = @bitCast(instruction_int);
 
                     //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction11Kind, instruction.kind)});
                     if (std.meta.intToEnum(Instruction11Kind, instruction.kind)) |inst11_kind| {
@@ -795,16 +795,16 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 if (std.meta.intToEnum(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
                                         .lb => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, mem[source_address]))),
-                                        .lh => self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
-                                        .lw => self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
+                                        .lh => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, std.mem.readInt(i16, mem[source_address..][0..2], .little)))),
+                                        .lw => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, std.mem.readInt(i32, mem[source_address..][0..4], .little)))),
                                         .ld => {
                                             if (cpu_kind != .rv64) {
                                                 return error.RV64OnlyInstruction;
                                             }
-                                            self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                            self.setRegister(inst_parts.rd, @bitCast(std.mem.readInt(URegister, mem[source_address..][0..8], .little)));
                                         },
                                         .lbu => self.setRegister(inst_parts.rd, mem[source_address]),
-                                        .lhu => self.setRegister(inst_parts.rd, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
+                                        .lhu => self.setRegister(inst_parts.rd, std.mem.readInt(u16, mem[source_address..][0..2], .little)),
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };

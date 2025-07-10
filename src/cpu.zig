@@ -104,7 +104,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     .imm_9_to_6 = inst_parts.imm_9_to_6,
                                 });
                                 const rd_register = 8 + @as(URegister, inst_parts.rd);
-                                self.set_register(rd_register, self.registers[2] + imm_value);
+                                self.setRegister(rd_register, self.registers[2] + imm_value);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst00 = .{ .addi4spn = {} } } };
                             },
@@ -172,7 +172,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     });
                                     const source_value: IRegister = @bitCast(self.registers[inst_parts.rd]);
                                     const new_value = source_value + imm_value;
-                                    self.set_register(inst_parts.rd, @bitCast(new_value));
+                                    self.setRegister(inst_parts.rd, @bitCast(new_value));
                                     self.pc += instruction_size;
                                     break :blk .{ .addi = {} };
                                 },
@@ -195,7 +195,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .imm_11_to_6 = inst_parts.imm_11_to_6,
                                     });
                                     const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
-                                    self.set_register(1, self.pc + instruction_size);
+                                    self.setRegister(1, self.pc + instruction_size);
                                     self.pc = new_pc;
                                     break :blk .{ .jal = {} };
                                 },
@@ -213,7 +213,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .imm_4_to_0 = inst_parts.imm_4_to_0,
                                         .imm_5 = inst_parts.imm_5,
                                     });
-                                    self.set_register(inst_parts.rd, @intCast(imm_value));
+                                    self.setRegister(inst_parts.rd, @intCast(imm_value));
                                     self.pc += instruction_size;
                                     break :blk .{ .li = {} };
                                 },
@@ -245,7 +245,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                 .imm_8_to_6 = imm_parts.imm_8_to_6,
                                                 .imm_9 = inst_parts.imm_5,
                                             });
-                                            self.set_register(2, @bitCast(@as(IRegister, @bitCast(self.registers[2])) + imm_value));
+                                            self.setRegister(2, @bitCast(@as(IRegister, @bitCast(self.registers[2])) + imm_value));
                                             self.pc += instruction_size;
                                             break :blk .{ .addi16sp_lui = {} };
                                         },
@@ -285,7 +285,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                             },
                                                         }
                                                     };
-                                                    self.set_register(rd_register, new_value);
+                                                    self.setRegister(rd_register, new_value);
                                                     break :blk2 .{ .srli = {} };
                                                 },
                                                 .srai => {
@@ -311,7 +311,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                             },
                                                         }
                                                     };
-                                                    self.set_register(rd_register, @intCast(new_value));
+                                                    self.setRegister(rd_register, @intCast(new_value));
                                                     break :blk2 .{ .srai = {} };
                                                 },
                                                 .andi => return error.NotImplemented,
@@ -327,14 +327,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                                 const rs2_register = 8 + @as(URegister, rest_4_to_0_parts.rs2);
                                                                 const source_value = self.registers[rd_register];
                                                                 const new_value = @subWithOverflow(source_value, self.registers[rs2_register])[0];
-                                                                self.set_register(rd_register, new_value);
+                                                                self.setRegister(rd_register, new_value);
                                                             },
                                                             .and_ => {
                                                                 const rd_register = 8 + @as(URegister, inst_parts.rd);
                                                                 const rs2_register = 8 + @as(URegister, rest_4_to_0_parts.rs2);
                                                                 const source_value = self.registers[rd_register];
                                                                 const new_value = source_value & self.registers[rs2_register];
-                                                                self.set_register(rd_register, new_value);
+                                                                self.setRegister(rd_register, new_value);
                                                             },
                                                         }
                                                         break :blk2 .{ .sub_and = inst01_ssas_suband_kind };
@@ -469,7 +469,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     });
                                     const sp = self.registers[2];
                                     const source_address = sp + imm_value;
-                                    self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                    self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
                                     self.pc += instruction_size;
                                     break :blk .{ .ldsp = {} };
                                 },
@@ -492,7 +492,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             const rs2_register = inst_parts.rs2;
                                             const source_value = self.registers[rd_register];
                                             const new_value = @addWithOverflow(source_value, self.registers[rs2_register])[0];
-                                            self.set_register(rd_register, new_value);
+                                            self.setRegister(rd_register, new_value);
                                             self.pc += instruction_size;
                                             break :blk .{ .jr_add = .add };
                                         },
@@ -563,14 +563,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                 const source1_value = self.registers[parts.rs1];
                                                 const source2_value = self.registers[parts.rs2];
                                                 const new_value = @addWithOverflow(source1_value, source2_value)[0];
-                                                self.set_register(parts.rd, new_value);
+                                                self.setRegister(parts.rd, new_value);
                                                 break :blk .{ .add = {} };
                                             },
                                             .sub => {
                                                 const source1_value = self.registers[parts.rs1];
                                                 const source2_value = self.registers[parts.rs2];
                                                 const new_value = @subWithOverflow(source1_value, source2_value)[0];
-                                                self.set_register(parts.rd, new_value);
+                                                self.setRegister(parts.rd, new_value);
                                                 break :blk .{ .sub = {} };
                                             },
                                             .m_ext => {
@@ -580,19 +580,19 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                             const source1_value: IRegister = @bitCast(self.registers[parts.rs1]);
                                                             const source2_value: IRegister = @bitCast(self.registers[parts.rs2]);
                                                             const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                            self.set_register(parts.rd, @bitCast(new_value));
+                                                            self.setRegister(parts.rd, @bitCast(new_value));
                                                         },
                                                         .divu => {
                                                             const source1_value = self.registers[parts.rs1];
                                                             const source2_value = self.registers[parts.rs2];
                                                             const new_value = source1_value / source2_value;
-                                                            self.set_register(parts.rd, new_value);
+                                                            self.setRegister(parts.rd, new_value);
                                                         },
                                                         .mulhu => {
                                                             const source1_value: URegisterDouble = self.registers[parts.rs1];
                                                             const source2_value: URegisterDouble = self.registers[parts.rs2];
                                                             const new_value = (source1_value * source2_value) >> @bitSizeOf(URegister);
-                                                            self.set_register(parts.rd, @intCast(new_value));
+                                                            self.setRegister(parts.rd, @intCast(new_value));
                                                         },
                                                     }
                                                     break :blk .{ .m_ext = inst11_op_mext_kind };
@@ -624,7 +624,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             } = @bitCast(inst_parts.rest);
                                             const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
                                             const new_value = source_value + parts.imm;
-                                            self.set_register(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
                                         },
                                         .slli => {
                                             const new_value = blk: {
@@ -649,7 +649,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                     },
                                                 }
                                             };
-                                            self.set_register(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
                                         },
                                         .sltiu => {
                                             const parts: packed struct {
@@ -658,7 +658,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             } = @bitCast(inst_parts.rest);
                                             const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
                                             const new_value: u32 = if (source_value < parts.imm) 1 else 0;
-                                            self.set_register(inst_parts.rd, new_value);
+                                            self.setRegister(inst_parts.rd, new_value);
                                         },
                                         .andi => {
                                             const parts: packed struct {
@@ -667,7 +667,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                             } = @bitCast(inst_parts.rest);
                                             const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
                                             const new_value = source_value & parts.imm;
-                                            self.set_register(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -699,7 +699,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     .imm_20 = inst_parts.imm_20,
                                 });
                                 const new_pc: URegister = @intCast(@as(IRegister, @intCast(self.pc)) + imm_value);
-                                self.set_register(inst_parts.rd, self.pc + instruction_size);
+                                self.setRegister(inst_parts.rd, self.pc + instruction_size);
                                 self.pc = new_pc;
                                 return .{ .cont = .{ .inst11 = .{ .jal = {} } } };
                             },
@@ -712,12 +712,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 } = @bitCast(instruction.rest);
                                 if (self.registers[inst_parts.rs1] == U_MAX) {
                                     // TODO: this is a hack...if rs1 contains the return address, just set pc to it so we exit
-                                    self.set_register(inst_parts.rd, self.pc + instruction_size);
+                                    self.setRegister(inst_parts.rd, self.pc + instruction_size);
                                     self.pc = self.registers[inst_parts.rs1];
                                 } else {
                                     const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
                                     const new_pc = @as(URegister, @intCast(source_value + inst_parts.imm)) & ~@as(URegister, 1);
-                                    self.set_register(inst_parts.rd, self.pc + instruction_size);
+                                    self.setRegister(inst_parts.rd, self.pc + instruction_size);
                                     self.pc = new_pc;
                                 }
                                 return .{ .cont = .{ .inst11 = .{ .jalr = {} } } };
@@ -727,7 +727,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.set_register(inst_parts.rd, inst_parts.imm);
+                                self.setRegister(inst_parts.rd, inst_parts.imm);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .lui = {} } } };
                             },
@@ -736,7 +736,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.set_register(inst_parts.rd, self.pc + inst_parts.imm);
+                                self.setRegister(inst_parts.rd, self.pc + inst_parts.imm);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .auipc = {} } } };
                             },
@@ -794,17 +794,17 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                                 if (std.meta.intToEnum(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
-                                        .lb => self.set_register(inst_parts.rd, @bitCast(@as(IRegister, mem[source_address]))),
-                                        .lh => self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
-                                        .lw => self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
+                                        .lb => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, mem[source_address]))),
+                                        .lh => self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 2]))),
+                                        .lw => self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(IRegister, mem[source_address .. source_address + 4]))),
                                         .ld => {
                                             if (cpu_kind != .rv64) {
                                                 return error.RV64OnlyInstruction;
                                             }
-                                            self.set_register(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
+                                            self.setRegister(inst_parts.rd, @bitCast(std.mem.bytesToValue(URegister, mem[source_address .. source_address + 8])));
                                         },
-                                        .lbu => self.set_register(inst_parts.rd, mem[source_address]),
-                                        .lhu => self.set_register(inst_parts.rd, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
+                                        .lbu => self.setRegister(inst_parts.rd, mem[source_address]),
+                                        .lhu => self.setRegister(inst_parts.rd, std.mem.bytesToValue(URegister, mem[source_address .. source_address + 2])),
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };
@@ -882,64 +882,64 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                         .csrrw => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
-                                            try self.set_csr(csr_address, source_value);
+                                            try self.setCsr(csr_address, source_value);
                                         },
                                         .csrrs => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
-                                                try self.set_csr(csr_address, csr_value | source_value);
+                                                try self.setCsr(csr_address, csr_value | source_value);
                                             }
                                         },
                                         .csrrc => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
-                                                try self.set_csr(csr_address, csr_value & (~source_value));
+                                                try self.setCsr(csr_address, csr_value & (~source_value));
                                             }
                                         },
                                         .csrrwi => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
-                                            try self.set_csr(csr_address, source_value);
+                                            try self.setCsr(csr_address, source_value);
                                         },
                                         .csrrsi => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
-                                                try self.set_csr(csr_address, csr_value | source_value);
+                                                try self.setCsr(csr_address, csr_value | source_value);
                                             }
                                         },
                                         .csrrci => {
                                             const csr_address = inst_parts.imm;
-                                            const csr_value = try self.get_csr(csr_address);
+                                            const csr_value = try self.getCsr(csr_address);
                                             const source_value = self.registers[inst_parts.rs1];
                                             if (inst_parts.rd != 0) {
-                                                self.set_register(inst_parts.rd, csr_value);
+                                                self.setRegister(inst_parts.rd, csr_value);
                                             }
                                             if (source_value != 0) {
-                                                try self.set_csr(csr_address, csr_value & (~source_value));
+                                                try self.setCsr(csr_address, csr_value & (~source_value));
                                             }
                                         },
                                     }
@@ -962,7 +962,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .addiw => {
                                             const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
                                             const new_value = @addWithOverflow(source_value, inst_parts.imm)[0];
-                                            self.set_register(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -979,13 +979,13 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             }
         }
 
-        fn set_register(self: *Cpu(cpu_kind), register: usize, value: URegister) void {
+        fn setRegister(self: *Cpu(cpu_kind), register: usize, value: URegister) void {
             if (register != 0) {
                 self.registers[register] = value;
             }
         }
 
-        fn get_csr(self: Cpu(cpu_kind), address: usize) !URegister {
+        fn getCsr(self: Cpu(cpu_kind), address: usize) !URegister {
             return switch (address) {
                 0x1 => self.csrs.test_register,
                 0xC00 => @intCast(self.csrs.rdcycle),
@@ -998,7 +998,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
             };
         }
 
-        fn set_csr(self: *Cpu(cpu_kind), address: usize, value: URegister) !void {
+        fn setCsr(self: *Cpu(cpu_kind), address: usize, value: URegister) !void {
             switch (address) {
                 0x1 => self.csrs.test_register = value,
                 else => return error.InvalidCsrAddress,

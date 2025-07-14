@@ -3,22 +3,24 @@ const xitrv = @import("xitrv");
 const Cpu = xitrv.cpu.Cpu;
 const Elf = xitrv.elf.Elf;
 
+const stack_size: usize = 2048;
+
 test "create cpu" {
-    const hello_world = @embedFile("test/bin/hello_world");
     const allocator = std.testing.allocator;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 4096);
-    defer mem.deinit();
-    mem.expandToCapacity();
+    const hello_world = @embedFile("test/bin/hello_world");
 
-    @memcpy(mem.items[0..hello_world.len], hello_world);
+    var mem = try allocator.alloc(u8, hello_world.len + stack_size);
+    defer allocator.free(mem);
+    @memcpy(mem[0..hello_world.len], hello_world);
 
     var output = std.ArrayList(u8).init(allocator);
     defer output.deinit();
 
     var cpu = Cpu(.rv32).init();
+
     while (true) {
-        const step = try cpu.step(mem.items);
+        const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
             .exit => break,
@@ -37,8 +39,10 @@ test "create cpu" {
 
 test "inc" {
     const allocator = std.testing.allocator;
+
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
+
     var elf = try Elf.init(allocator, test_file.reader());
     defer elf.deinit();
 
@@ -46,19 +50,18 @@ test "inc" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 1_000_000);
-    defer mem.deinit();
-    mem.expandToCapacity();
-
-    @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
+    var mem = try allocator.alloc(u8, section.kind.progbits.buffer.len + stack_size);
+    defer allocator.free(mem);
+    @memcpy(mem[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[2] = section.kind.progbits.buffer.len;
+    cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
     cpu.registers[10] = 42;
+
     var count: usize = 0;
     while (true) {
-        const step = try cpu.step(mem.items);
+        const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
             .exit => break,
@@ -73,13 +76,16 @@ test "inc" {
             return error.CountExceededLimit;
         }
     }
+
     try std.testing.expectEqual(43, cpu.registers[10]);
 }
 
 test "recur" {
     const allocator = std.testing.allocator;
+
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
+
     var elf = try Elf.init(allocator, test_file.reader());
     defer elf.deinit();
 
@@ -87,19 +93,18 @@ test "recur" {
     const section = elf.sections.items[func_symbol.shndx];
     const func_offset = func_symbol.value - section.addr;
 
-    var mem = try std.ArrayList(u8).initCapacity(allocator, 1_000_000);
-    defer mem.deinit();
-    mem.expandToCapacity();
-
-    @memcpy(mem.items[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
+    var mem = try allocator.alloc(u8, section.kind.progbits.buffer.len + stack_size);
+    defer allocator.free(mem);
+    @memcpy(mem[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[2] = section.kind.progbits.buffer.len;
+    cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
     cpu.registers[10] = 1;
+
     var count: usize = 0;
     while (true) {
-        const step = try cpu.step(mem.items);
+        const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
             .exit => break,
@@ -114,5 +119,6 @@ test "recur" {
             return error.CountExceededLimit;
         }
     }
+
     try std.testing.expectEqual(10, cpu.registers[10]);
 }

@@ -19,7 +19,7 @@ test "create cpu" {
 
     var cpu = Cpu(.rv32).init();
 
-    while (true) {
+    for (0..1000) |_| {
         const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
@@ -32,7 +32,7 @@ test "create cpu" {
                 }
             },
         }
-    }
+    } else return error.MaxStepCountExceeded;
 
     try std.testing.expectEqualStrings("Hello World\n", output.items);
 }
@@ -59,8 +59,7 @@ test "inc" {
     cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
     cpu.registers[10] = 42;
 
-    var count: usize = 0;
-    while (true) {
+    for (0..1000) |_| {
         const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
@@ -71,11 +70,7 @@ test "inc" {
                 }
             },
         }
-        count += 1;
-        if (count > 1000) {
-            return error.CountExceededLimit;
-        }
-    }
+    } else return error.MaxStepCountExceeded;
 
     try std.testing.expectEqual(43, cpu.registers[10]);
 }
@@ -102,8 +97,7 @@ test "recur" {
     cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
     cpu.registers[10] = 1;
 
-    var count: usize = 0;
-    while (true) {
+    for (0..1000) |_| {
         const step = try cpu.step(mem);
         switch (step) {
             .cont => {},
@@ -114,11 +108,7 @@ test "recur" {
                 }
             },
         }
-        count += 1;
-        if (count > 1000) {
-            return error.CountExceededLimit;
-        }
-    }
+    } else return error.MaxStepCountExceeded;
 
     try std.testing.expectEqual(10, cpu.registers[10]);
 }

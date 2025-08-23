@@ -154,7 +154,6 @@ pub const Section = struct {
 };
 
 pub const Elf = struct {
-    allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     program_headers: std.ArrayList(ProgramHeader),
     sections: std.ArrayList(Section),
@@ -259,8 +258,8 @@ pub const Elf = struct {
 
         // program headers
 
-        var program_headers = std.ArrayList(ProgramHeader).init(allocator);
-        errdefer program_headers.deinit();
+        var program_headers = std.ArrayList(ProgramHeader){};
+        errdefer program_headers.deinit(allocator);
         for (0..phnum) |_| {
             const kind = try reader.readInt(u32, endian);
             const permissions = try reader.readInt(u32, endian);
@@ -290,7 +289,7 @@ pub const Elf = struct {
                 .memory_size = try reader.readInt(u64, endian),
                 .alignment = try reader.readInt(u64, endian),
             };
-            try program_headers.append(header);
+            try program_headers.append(allocator, header);
         }
 
         // sections
@@ -310,8 +309,8 @@ pub const Elf = struct {
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        var sections = std.ArrayList(Section).init(allocator);
-        errdefer sections.deinit();
+        var sections = std.ArrayList(Section){};
+        errdefer sections.deinit(allocator);
         for (0..shnum) |_| {
             const name = try reader.readInt(u32, endian);
             const kind = try reader.readInt(u32, endian);
@@ -383,11 +382,11 @@ pub const Elf = struct {
                             return error.InvalidSectionSize;
                         }
                         const start_pos = offset - section_start_pos;
-                        var symbols = std.ArrayList(Symbol).init(arena.allocator());
+                        var symbols = std.ArrayList(Symbol){};
                         for (0..size / entry_size) |i| {
                             const entry_start_pos = start_pos + (entry_size * i);
                             const buffer = section_buffer[entry_start_pos .. entry_start_pos + entry_size];
-                            try symbols.append(try Symbol.init(buffer, endian));
+                            try symbols.append(arena.allocator(), try Symbol.init(buffer, endian));
                         }
                         break :blk .{ .dynsym = .{
                             .symbols = symbols,
@@ -426,7 +425,7 @@ pub const Elf = struct {
                 .alignment = alignment,
                 .entry_size = entry_size,
             };
-            try sections.append(section);
+            try sections.append(allocator, section);
         }
 
         // set name_str for sections and symbols
@@ -458,7 +457,6 @@ pub const Elf = struct {
         }
 
         return .{
-            .allocator = allocator,
             .arena = arena,
             .program_headers = program_headers,
             .sections = sections,
@@ -467,11 +465,11 @@ pub const Elf = struct {
         };
     }
 
-    pub fn deinit(self: *Elf) void {
+    pub fn deinit(self: *Elf, allocator: std.mem.Allocator) void {
         self.arena.deinit();
-        self.program_headers.deinit();
-        self.sections.deinit();
-        self.allocator.free(self.section_buffer);
+        self.program_headers.deinit(allocator);
+        self.sections.deinit(allocator);
+        allocator.free(self.section_buffer);
         self.name_to_dynsym.deinit();
     }
 };

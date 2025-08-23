@@ -14,8 +14,8 @@ test "create cpu" {
     defer allocator.free(mem);
     @memcpy(mem[0..hello_world.len], hello_world);
 
-    var output = std.ArrayList(u8).init(allocator);
-    defer output.deinit();
+    var output = std.ArrayList(u8){};
+    defer output.deinit(allocator);
 
     var cpu = Cpu(.rv32).init();
 
@@ -27,7 +27,7 @@ test "create cpu" {
             .system => {
                 switch (step.system) {
                     0 => break,
-                    1 => try output.append(@intCast(cpu.registers[11])),
+                    1 => try output.append(allocator, @intCast(cpu.registers[11])),
                     else => return error.InvalidEcall,
                 }
             },
@@ -43,8 +43,8 @@ test "inc" {
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
 
-    var elf = try Elf.init(allocator, test_file.reader());
-    defer elf.deinit();
+    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    defer elf.deinit(allocator);
 
     const func_symbol = elf.name_to_dynsym.get("inc") orelse return error.SymbolNotFound;
     const section = elf.sections.items[func_symbol.shndx];
@@ -81,8 +81,8 @@ test "recur" {
     const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
     defer test_file.close();
 
-    var elf = try Elf.init(allocator, test_file.reader());
-    defer elf.deinit();
+    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    defer elf.deinit(allocator);
 
     const func_symbol = elf.name_to_dynsym.get("recur") orelse return error.SymbolNotFound;
     const section = elf.sections.items[func_symbol.shndx];

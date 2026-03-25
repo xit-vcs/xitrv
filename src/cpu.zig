@@ -213,7 +213,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .imm_4_to_0 = inst_parts.imm_4_to_0,
                                         .imm_5 = inst_parts.imm_5,
                                     });
-                                    self.setRegister(inst_parts.rd, @intCast(imm_value));
+                                    self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, imm_value)));
                                     self.pc += instruction_size;
                                     break :blk .{ .li = {} };
                                 },
@@ -311,7 +311,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                             },
                                                         }
                                                     };
-                                                    self.setRegister(rd_register, @intCast(new_value));
+                                                    self.setRegister(rd_register, @bitCast(@as(IRegister, new_value)));
                                                     break :blk2 .{ .srai = {} };
                                                 },
                                                 .andi => return error.NotImplemented,
@@ -557,42 +557,119 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         rs2: u5,
                                     } = @bitCast(inst_parts.rest);
 
+                                    const source1_value = self.registers[parts.rs1];
+                                    const source2_value = self.registers[parts.rs2];
+
                                     const inst11_op: Instruction11Op = blk: {
                                         switch (inst11_op_kind) {
-                                            .add => {
-                                                const source1_value = self.registers[parts.rs1];
-                                                const source2_value = self.registers[parts.rs2];
-                                                const new_value = @addWithOverflow(source1_value, source2_value)[0];
-                                                self.setRegister(parts.rd, new_value);
-                                                break :blk .{ .add = {} };
+                                            .base => {
+                                                if (std.meta.intToEnum(Instruction11OpBaseKind, parts.kind)) |inst11_op_base_kind| {
+                                                    switch (inst11_op_base_kind) {
+                                                        .add => self.setRegister(parts.rd, @addWithOverflow(source1_value, source2_value)[0]),
+                                                        .sll => {
+                                                            const shamt = switch (cpu_kind) {
+                                                                .rv32 => @as(u5, @truncate(source2_value)),
+                                                                .rv64 => @as(u6, @truncate(source2_value)),
+                                                            };
+                                                            self.setRegister(parts.rd, source1_value << shamt);
+                                                        },
+                                                        .slt => {
+                                                            const rs1_signed: IRegister = @bitCast(source1_value);
+                                                            const rs2_signed: IRegister = @bitCast(source2_value);
+                                                            self.setRegister(parts.rd, if (rs1_signed < rs2_signed) 1 else 0);
+                                                        },
+                                                        .sltu => self.setRegister(parts.rd, if (source1_value < source2_value) 1 else 0),
+                                                        .xor_ => self.setRegister(parts.rd, source1_value ^ source2_value),
+                                                        .srl => {
+                                                            const shamt = switch (cpu_kind) {
+                                                                .rv32 => @as(u5, @truncate(source2_value)),
+                                                                .rv64 => @as(u6, @truncate(source2_value)),
+                                                            };
+                                                            self.setRegister(parts.rd, source1_value >> shamt);
+                                                        },
+                                                        .or_ => self.setRegister(parts.rd, source1_value | source2_value),
+                                                        .and_ => self.setRegister(parts.rd, source1_value & source2_value),
+                                                    }
+                                                    break :blk .{ .base = inst11_op_base_kind };
+                                                } else |_| {
+                                                    return error.InvalidInstruction11OpBaseKind;
+                                                }
                                             },
-                                            .sub => {
-                                                const source1_value = self.registers[parts.rs1];
-                                                const source2_value = self.registers[parts.rs2];
-                                                const new_value = @subWithOverflow(source1_value, source2_value)[0];
-                                                self.setRegister(parts.rd, new_value);
-                                                break :blk .{ .sub = {} };
+                                            .alt => {
+                                                if (std.meta.intToEnum(Instruction11OpAltKind, parts.kind)) |inst11_op_alt_kind| {
+                                                    switch (inst11_op_alt_kind) {
+                                                        .sub => self.setRegister(parts.rd, @subWithOverflow(source1_value, source2_value)[0]),
+                                                        .sra => {
+                                                            const shamt = switch (cpu_kind) {
+                                                                .rv32 => @as(u5, @truncate(source2_value)),
+                                                                .rv64 => @as(u6, @truncate(source2_value)),
+                                                            };
+                                                            const signed_value: IRegister = @bitCast(source1_value);
+                                                            self.setRegister(parts.rd, @bitCast(signed_value >> shamt));
+                                                        },
+                                                    }
+                                                    break :blk .{ .alt = inst11_op_alt_kind };
+                                                } else |_| {
+                                                    return error.InvalidInstruction11OpAltKind;
+                                                }
                                             },
                                             .m_ext => {
                                                 if (std.meta.intToEnum(Instruction11OpMextKind, parts.kind)) |inst11_op_mext_kind| {
                                                     switch (inst11_op_mext_kind) {
                                                         .mul => {
-                                                            const source1_value: IRegister = @bitCast(self.registers[parts.rs1]);
-                                                            const source2_value: IRegister = @bitCast(self.registers[parts.rs2]);
-                                                            const new_value = @mulWithOverflow(source1_value, source2_value)[0];
-                                                            self.setRegister(parts.rd, @bitCast(new_value));
+                                                            const s1: IRegister = @bitCast(source1_value);
+                                                            const s2: IRegister = @bitCast(source2_value);
+                                                            self.setRegister(parts.rd, @bitCast(@mulWithOverflow(s1, s2)[0]));
                                                         },
-                                                        .divu => {
-                                                            const source1_value = self.registers[parts.rs1];
-                                                            const source2_value = self.registers[parts.rs2];
-                                                            const new_value = source1_value / source2_value;
-                                                            self.setRegister(parts.rd, new_value);
+                                                        .mulh => {
+                                                            const s1: IRegisterDouble = @as(IRegister, @bitCast(source1_value));
+                                                            const s2: IRegisterDouble = @as(IRegister, @bitCast(source2_value));
+                                                            const result = (s1 * s2) >> @bitSizeOf(URegister);
+                                                            self.setRegister(parts.rd, @bitCast(@as(IRegister, @intCast(result))));
+                                                        },
+                                                        .mulhsu => {
+                                                            const s1: IRegisterDouble = @as(IRegister, @bitCast(source1_value));
+                                                            const s2: IRegisterDouble = @intCast(source2_value);
+                                                            const result = (s1 * s2) >> @bitSizeOf(URegister);
+                                                            self.setRegister(parts.rd, @bitCast(@as(IRegister, @intCast(result))));
                                                         },
                                                         .mulhu => {
-                                                            const source1_value: URegisterDouble = self.registers[parts.rs1];
-                                                            const source2_value: URegisterDouble = self.registers[parts.rs2];
-                                                            const new_value = (source1_value * source2_value) >> @bitSizeOf(URegister);
-                                                            self.setRegister(parts.rd, @intCast(new_value));
+                                                            const s1: URegisterDouble = source1_value;
+                                                            const s2: URegisterDouble = source2_value;
+                                                            const result = (s1 * s2) >> @bitSizeOf(URegister);
+                                                            self.setRegister(parts.rd, @intCast(result));
+                                                        },
+                                                        .div => {
+                                                            const s1: IRegister = @bitCast(source1_value);
+                                                            const s2: IRegister = @bitCast(source2_value);
+                                                            if (s2 == 0) {
+                                                                self.setRegister(parts.rd, U_MAX);
+                                                            } else {
+                                                                self.setRegister(parts.rd, @bitCast(@divTrunc(s1, s2)));
+                                                            }
+                                                        },
+                                                        .divu => {
+                                                            if (source2_value == 0) {
+                                                                self.setRegister(parts.rd, U_MAX);
+                                                            } else {
+                                                                self.setRegister(parts.rd, source1_value / source2_value);
+                                                            }
+                                                        },
+                                                        .rem => {
+                                                            const s1: IRegister = @bitCast(source1_value);
+                                                            const s2: IRegister = @bitCast(source2_value);
+                                                            if (s2 == 0) {
+                                                                self.setRegister(parts.rd, source1_value);
+                                                            } else {
+                                                                self.setRegister(parts.rd, @bitCast(@rem(s1, s2)));
+                                                            }
+                                                        },
+                                                        .remu => {
+                                                            if (source2_value == 0) {
+                                                                self.setRegister(parts.rd, source1_value);
+                                                            } else {
+                                                                self.setRegister(parts.rd, source1_value % source2_value);
+                                                            }
                                                         },
                                                     }
                                                     break :blk .{ .m_ext = inst11_op_mext_kind };
@@ -616,58 +693,52 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 } = @bitCast(instruction.rest);
 
                                 if (std.meta.intToEnum(Instruction11OpImmKind, inst_parts.kind)) |inst11_op_imm_kind| {
+                                    const parts: packed struct {
+                                        rs1: u5,
+                                        imm: i12,
+                                    } = @bitCast(inst_parts.rest);
+                                    const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
+
                                     switch (inst11_op_imm_kind) {
                                         .addi => {
-                                            const parts: packed struct {
-                                                rs1: u5,
-                                                imm: i12,
-                                            } = @bitCast(inst_parts.rest);
-                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
-                                            const new_value = source_value + parts.imm;
-                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(source_value + parts.imm));
                                         },
-                                        .slli => {
-                                            const new_value = blk: {
-                                                switch (cpu_kind) {
-                                                    .rv32 => {
-                                                        const parts: packed struct {
-                                                            rs1: u5,
-                                                            imm: u5,
-                                                            rest: u7,
-                                                        } = @bitCast(inst_parts.rest);
-                                                        const source_value = self.registers[parts.rs1];
-                                                        break :blk source_value << parts.imm;
-                                                    },
-                                                    .rv64 => {
-                                                        const parts: packed struct {
-                                                            rs1: u5,
-                                                            imm: u6,
-                                                            rest: u6,
-                                                        } = @bitCast(inst_parts.rest);
-                                                        const source_value = self.registers[parts.rs1];
-                                                        break :blk source_value << parts.imm;
-                                                    },
-                                                }
-                                            };
-                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
+                                        .slti => {
+                                            self.setRegister(inst_parts.rd, if (source_value < parts.imm) 1 else 0);
                                         },
                                         .sltiu => {
-                                            const parts: packed struct {
-                                                rs1: u5,
-                                                imm: i12,
-                                            } = @bitCast(inst_parts.rest);
-                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
-                                            const new_value: u32 = if (source_value < parts.imm) 1 else 0;
-                                            self.setRegister(inst_parts.rd, new_value);
+                                            const unsigned_source = self.registers[parts.rs1];
+                                            const unsigned_imm: URegister = @bitCast(@as(IRegister, parts.imm));
+                                            self.setRegister(inst_parts.rd, if (unsigned_source < unsigned_imm) 1 else 0);
+                                        },
+                                        .xori => {
+                                            self.setRegister(inst_parts.rd, @bitCast(source_value ^ parts.imm));
+                                        },
+                                        .ori => {
+                                            self.setRegister(inst_parts.rd, @bitCast(source_value | parts.imm));
                                         },
                                         .andi => {
-                                            const parts: packed struct {
-                                                rs1: u5,
-                                                imm: i12,
-                                            } = @bitCast(inst_parts.rest);
-                                            const source_value: IRegister = @bitCast(self.registers[parts.rs1]);
-                                            const new_value = source_value & parts.imm;
-                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
+                                            self.setRegister(inst_parts.rd, @bitCast(source_value & parts.imm));
+                                        },
+                                        .slli => {
+                                            const shamt = switch (cpu_kind) {
+                                                .rv32 => @as(u5, @truncate(@as(u12, @bitCast(parts.imm)))),
+                                                .rv64 => @as(u6, @truncate(@as(u12, @bitCast(parts.imm)))),
+                                            };
+                                            self.setRegister(inst_parts.rd, self.registers[parts.rs1] << shamt);
+                                        },
+                                        .srli_srai => {
+                                            const imm_bits: u12 = @bitCast(parts.imm);
+                                            const is_arithmetic = (imm_bits >> 10) & 1 == 1;
+                                            const shamt = switch (cpu_kind) {
+                                                .rv32 => @as(u5, @truncate(imm_bits)),
+                                                .rv64 => @as(u6, @truncate(imm_bits)),
+                                            };
+                                            if (is_arithmetic) {
+                                                self.setRegister(inst_parts.rd, @bitCast(source_value >> shamt));
+                                            } else {
+                                                self.setRegister(inst_parts.rd, self.registers[parts.rs1] >> shamt);
+                                            }
                                         },
                                     }
                                     self.pc += instruction_size;
@@ -727,7 +798,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.setRegister(inst_parts.rd, inst_parts.imm);
+                                self.setRegister(inst_parts.rd, @as(URegister, inst_parts.imm) << 12);
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .lui = {} } } };
                             },
@@ -736,7 +807,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.setRegister(inst_parts.rd, self.pc + inst_parts.imm);
+                                self.setRegister(inst_parts.rd, self.pc +% (@as(URegister, inst_parts.imm) << 12));
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .auipc = {} } } };
                             },
@@ -794,7 +865,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                                 if (std.meta.intToEnum(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
-                                        .lb => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, mem[source_address]))),
+                                        .lb => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, @as(i8, @bitCast(mem[source_address]))))),
                                         .lh => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, std.mem.readInt(i16, mem[source_address..][0..2], .little)))),
                                         .lw => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, std.mem.readInt(i32, mem[source_address..][0..4], .little)))),
                                         .ld => {
@@ -805,6 +876,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         },
                                         .lbu => self.setRegister(inst_parts.rd, mem[source_address]),
                                         .lhu => self.setRegister(inst_parts.rd, std.mem.readInt(u16, mem[source_address..][0..2], .little)),
+                                        .lwu => {
+                                            if (cpu_kind != .rv64) {
+                                                return error.RV64OnlyInstruction;
+                                            }
+                                            self.setRegister(inst_parts.rd, std.mem.readInt(u32, mem[source_address..][0..4], .little));
+                                        },
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };
@@ -914,32 +991,32 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         .csrrwi => {
                                             const csr_address = inst_parts.imm;
                                             const csr_value = try self.getCsr(csr_address);
-                                            const source_value = self.registers[inst_parts.rs1];
+                                            const zimm: URegister = inst_parts.rs1;
                                             if (inst_parts.rd != 0) {
                                                 self.setRegister(inst_parts.rd, csr_value);
                                             }
-                                            try self.setCsr(csr_address, source_value);
+                                            try self.setCsr(csr_address, zimm);
                                         },
                                         .csrrsi => {
                                             const csr_address = inst_parts.imm;
                                             const csr_value = try self.getCsr(csr_address);
-                                            const source_value = self.registers[inst_parts.rs1];
+                                            const zimm: URegister = inst_parts.rs1;
                                             if (inst_parts.rd != 0) {
                                                 self.setRegister(inst_parts.rd, csr_value);
                                             }
-                                            if (source_value != 0) {
-                                                try self.setCsr(csr_address, csr_value | source_value);
+                                            if (zimm != 0) {
+                                                try self.setCsr(csr_address, csr_value | zimm);
                                             }
                                         },
                                         .csrrci => {
                                             const csr_address = inst_parts.imm;
                                             const csr_value = try self.getCsr(csr_address);
-                                            const source_value = self.registers[inst_parts.rs1];
+                                            const zimm: URegister = inst_parts.rs1;
                                             if (inst_parts.rd != 0) {
                                                 self.setRegister(inst_parts.rd, csr_value);
                                             }
-                                            if (source_value != 0) {
-                                                try self.setCsr(csr_address, csr_value & (~source_value));
+                                            if (zimm != 0) {
+                                                try self.setCsr(csr_address, csr_value & (~zimm));
                                             }
                                         },
                                     }
@@ -950,6 +1027,9 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 }
                             },
                             .rv64i => {
+                                if (cpu_kind != .rv64) {
+                                    return error.RV64OnlyInstruction;
+                                }
                                 const inst_parts: packed struct {
                                     rd: u5,
                                     kind: u3,
@@ -958,17 +1038,88 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 } = @bitCast(instruction.rest);
 
                                 if (std.meta.intToEnum(Instruction11RV64IKind, inst_parts.kind)) |inst11_rv64i_kind| {
+                                    const src32: i32 = @truncate(@as(IRegister, @bitCast(self.registers[inst_parts.rs1])));
                                     switch (inst11_rv64i_kind) {
                                         .addiw => {
-                                            const source_value: IRegister = @bitCast(self.registers[inst_parts.rs1]);
-                                            const new_value = @addWithOverflow(source_value, inst_parts.imm)[0];
-                                            self.setRegister(inst_parts.rd, @bitCast(new_value));
+                                            const result: i32 = @addWithOverflow(src32, @as(i32, inst_parts.imm))[0];
+                                            self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, result)));
+                                        },
+                                        .slliw => {
+                                            const shamt: u5 = @truncate(@as(u12, @bitCast(inst_parts.imm)));
+                                            const result: i32 = @truncate(@as(i64, @as(u32, @bitCast(src32))) << shamt);
+                                            self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, result)));
+                                        },
+                                        .srliw_sraiw => {
+                                            const imm_bits: u12 = @bitCast(inst_parts.imm);
+                                            const shamt: u5 = @truncate(imm_bits);
+                                            const is_arithmetic = (imm_bits >> 10) & 1 == 1;
+                                            if (is_arithmetic) {
+                                                const result = src32 >> shamt;
+                                                self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, result)));
+                                            } else {
+                                                const usrc32: u32 = @bitCast(src32);
+                                                const result: i32 = @bitCast(usrc32 >> shamt);
+                                                self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, result)));
+                                            }
                                         },
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .rv64i = inst11_rv64i_kind } } };
                                 } else |_| {
                                     return error.InvalidInstruction11RV64IKind;
+                                }
+                            },
+                            .rv64_op => {
+                                if (cpu_kind != .rv64) {
+                                    return error.RV64OnlyInstruction;
+                                }
+                                const inst_parts: packed struct {
+                                    rest: u18,
+                                    kind: u7,
+                                } = @bitCast(instruction.rest);
+
+                                if (std.meta.intToEnum(Instruction11Rv64OpKind, inst_parts.kind)) |inst11_rv64_op_kind| {
+                                    const parts: packed struct {
+                                        rd: u5,
+                                        funct3: u3,
+                                        rs1: u5,
+                                        rs2: u5,
+                                    } = @bitCast(inst_parts.rest);
+
+                                    const src1_32: i32 = @truncate(@as(IRegister, @bitCast(self.registers[parts.rs1])));
+                                    const src2_32: i32 = @truncate(@as(IRegister, @bitCast(self.registers[parts.rs2])));
+                                    const usrc1_32: u32 = @bitCast(src1_32);
+                                    const usrc2_5: u5 = @truncate(@as(u32, @bitCast(src2_32)));
+
+                                    switch (inst11_rv64_op_kind) {
+                                        .base => {
+                                            if (std.meta.intToEnum(Instruction11Rv64OpBaseKind, parts.funct3)) |rv64_op_base_kind| {
+                                                const result: i32 = switch (rv64_op_base_kind) {
+                                                    .addw => @addWithOverflow(src1_32, src2_32)[0],
+                                                    .sllw => @bitCast(@as(u32, @bitCast(src1_32)) << usrc2_5),
+                                                    .srlw => @bitCast(usrc1_32 >> usrc2_5),
+                                                };
+                                                self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
+                                            } else |_| {
+                                                return error.InvalidInstruction11Rv64OpBaseKind;
+                                            }
+                                        },
+                                        .alt => {
+                                            if (std.meta.intToEnum(Instruction11Rv64OpAltKind, parts.funct3)) |rv64_op_alt_kind| {
+                                                const result: i32 = switch (rv64_op_alt_kind) {
+                                                    .subw => @subWithOverflow(src1_32, src2_32)[0],
+                                                    .sraw => src1_32 >> usrc2_5,
+                                                };
+                                                self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
+                                            } else |_| {
+                                                return error.InvalidInstruction11Rv64OpAltKind;
+                                            }
+                                        },
+                                    }
+                                    self.pc += instruction_size;
+                                    return .{ .cont = .{ .inst11 = .{ .rv64_op = inst11_rv64_op_kind } } };
+                                } else |_| {
+                                    return error.InvalidInstruction11Rv64OpKind;
                                 }
                             },
                         }
@@ -1090,6 +1241,7 @@ pub const Instruction11Kind = enum(u5) {
     fence = 0b00011,
     system = 0b11100,
     rv64i = 0b00110,
+    rv64_op = 0b01110,
 };
 pub const Instruction11 = union(Instruction11Kind) {
     op: Instruction11Op,
@@ -1104,26 +1256,50 @@ pub const Instruction11 = union(Instruction11Kind) {
     fence,
     system: Instruction11SystemKind,
     rv64i: Instruction11RV64IKind,
+    rv64_op: Instruction11Rv64OpKind,
 };
 pub const Instruction11OpKind = enum(u7) {
-    add = 0b00000_00,
-    sub = 0b01000_00,
+    base = 0b00000_00,
+    alt = 0b01000_00,
     m_ext = 0b00000_01,
 };
 pub const Instruction11Op = union(Instruction11OpKind) {
-    add,
-    sub,
+    base: Instruction11OpBaseKind,
+    alt: Instruction11OpAltKind,
     m_ext: Instruction11OpMextKind,
+};
+pub const Instruction11OpBaseKind = enum(u3) {
+    add = 0b000,
+    sll = 0b001,
+    slt = 0b010,
+    sltu = 0b011,
+    xor_ = 0b100,
+    srl = 0b101,
+    or_ = 0b110,
+    and_ = 0b111,
+};
+pub const Instruction11OpAltKind = enum(u3) {
+    sub = 0b000,
+    sra = 0b101,
 };
 pub const Instruction11OpMextKind = enum(u3) {
     mul = 0b000,
-    divu = 0b101,
+    mulh = 0b001,
+    mulhsu = 0b010,
     mulhu = 0b011,
+    div = 0b100,
+    divu = 0b101,
+    rem = 0b110,
+    remu = 0b111,
 };
 pub const Instruction11OpImmKind = enum(u3) {
     addi = 0b000,
     slli = 0b001,
+    slti = 0b010,
     sltiu = 0b011,
+    xori = 0b100,
+    srli_srai = 0b101,
+    ori = 0b110,
     andi = 0b111,
 };
 pub const Instruction11BranchKind = enum(u3) {
@@ -1141,6 +1317,7 @@ pub const Instruction11LoadKind = enum(u3) {
     ld = 0b011,
     lbu = 0b100,
     lhu = 0b101,
+    lwu = 0b110,
 };
 pub const Instruction11StoreKind = enum(u3) {
     sb = 0b000,
@@ -1159,4 +1336,19 @@ pub const Instruction11SystemKind = enum(u3) {
 };
 pub const Instruction11RV64IKind = enum(u3) {
     addiw = 0b000,
+    slliw = 0b001,
+    srliw_sraiw = 0b101,
+};
+pub const Instruction11Rv64OpKind = enum(u7) {
+    base = 0b00000_00,
+    alt = 0b01000_00,
+};
+pub const Instruction11Rv64OpBaseKind = enum(u3) {
+    addw = 0b000,
+    sllw = 0b001,
+    srlw = 0b101,
+};
+pub const Instruction11Rv64OpAltKind = enum(u3) {
+    subw = 0b000,
+    sraw = 0b101,
 };

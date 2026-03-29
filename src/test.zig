@@ -6,7 +6,7 @@ const Elf = xitrv.elf.Elf;
 
 const stack_size: usize = 2048;
 
-test "create cpu" {
+test "hello world" {
     const allocator = std.testing.allocator;
 
     const hello_world = @embedFile("test/bin/hello_world");
@@ -40,8 +40,18 @@ test "create cpu" {
 
 test "inc" {
     const allocator = std.testing.allocator;
+    try testInc(allocator, "zig-out/lib/libtest.so");
+    try testInc(allocator, "zig-out/lib/libtest-no-compressed.so");
+}
 
-    const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
+test "recur" {
+    const allocator = std.testing.allocator;
+    try testRecur(allocator, "zig-out/lib/libtest.so");
+    try testRecur(allocator, "zig-out/lib/libtest-no-compressed.so");
+}
+
+fn testInc(allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
     defer test_file.close();
 
     var elf = try Elf.init(allocator, test_file.deprecatedReader());
@@ -57,7 +67,7 @@ test "inc" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
+    cpu.registers[2] = section.kind.progbits.buffer.len + stack_size; // stack pointer (top of stack)
     cpu.registers[10] = 42;
 
     for (0..1000) |_| {
@@ -76,10 +86,8 @@ test "inc" {
     try std.testing.expectEqual(43, cpu.registers[10]);
 }
 
-test "recur" {
-    const allocator = std.testing.allocator;
-
-    const test_file = try std.fs.cwd().openFile("zig-out/lib/libtest.so", .{ .mode = .read_only });
+fn testRecur(allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
     defer test_file.close();
 
     var elf = try Elf.init(allocator, test_file.deprecatedReader());
@@ -95,7 +103,7 @@ test "recur" {
 
     var cpu = Cpu(.rv64).init();
     cpu.pc = func_offset;
-    cpu.registers[2] = section.kind.progbits.buffer.len; // stack pointer
+    cpu.registers[2] = section.kind.progbits.buffer.len + stack_size; // stack pointer (top of stack)
     cpu.registers[10] = 1;
 
     for (0..1000) |_| {
@@ -1356,13 +1364,18 @@ test "rv32 C.AND" {
 
 test "rv32 C.J" {
     var mem = testMem();
-    // C.J offset: pc = pc + sext(offset)
-    // offset = +6: imm_4_to_1=0b0011, imm_5=0, imm_11_to_6=0
-    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_4_to_1: u4, imm_11_to_6: u6, kind: u3 }{
+    // C.J offset: imm[11|4|9:8|10|6|7|3:1|5] at inst[12|11|10:9|8|7|6|5:3|2]
+    // offset = +6: imm[2:1]=11, rest=0
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_3_to_1: u3, imm_7: u1, imm_6: u1, imm_10: u1, imm_9_to_8: u2, imm_4: u1, imm_11: u1, kind: u3 }{
         .op = 0b01,
         .imm_5 = 0,
-        .imm_4_to_1 = 0b0011, // offset = 6
-        .imm_11_to_6 = 0,
+        .imm_3_to_1 = 0b011, // offset[3:1] = 011
+        .imm_7 = 0,
+        .imm_6 = 0,
+        .imm_10 = 0,
+        .imm_9_to_8 = 0,
+        .imm_4 = 0,
+        .imm_11 = 0,
         .kind = 0b101,
     });
     writeInst16(&mem, 0, inst);
@@ -1373,12 +1386,16 @@ test "rv32 C.J" {
 
 test "rv32 C.BEQZ taken" {
     var mem = testMem();
-    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_4_to_1: u4, rs1: u3, imm_8_to_6: u3, kind: u3 }{
+    // C.BEQZ offset: imm[8|4:3|7:6|2:1|5] at inst[12|11:10|6:5|4:3|2]
+    // offset = 6: imm[2:1]=11, rest=0
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_2_to_1: u2, imm_7_to_6: u2, rs1: u3, imm_4_to_3: u2, imm_8: u1, kind: u3 }{
         .op = 0b01,
         .imm_5 = 0,
-        .imm_4_to_1 = 0b0011, // offset = 6
+        .imm_2_to_1 = 0b11, // offset[2:1] = 11
+        .imm_7_to_6 = 0,
         .rs1 = 0, // x8
-        .imm_8_to_6 = 0,
+        .imm_4_to_3 = 0,
+        .imm_8 = 0,
         .kind = 0b110,
     });
     writeInst16(&mem, 0, inst);
@@ -1390,12 +1407,14 @@ test "rv32 C.BEQZ taken" {
 
 test "rv32 C.BEQZ not taken" {
     var mem = testMem();
-    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_4_to_1: u4, rs1: u3, imm_8_to_6: u3, kind: u3 }{
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_2_to_1: u2, imm_7_to_6: u2, rs1: u3, imm_4_to_3: u2, imm_8: u1, kind: u3 }{
         .op = 0b01,
         .imm_5 = 0,
-        .imm_4_to_1 = 0b0011,
+        .imm_2_to_1 = 0b11,
+        .imm_7_to_6 = 0,
         .rs1 = 0,
-        .imm_8_to_6 = 0,
+        .imm_4_to_3 = 0,
+        .imm_8 = 0,
         .kind = 0b110,
     });
     writeInst16(&mem, 0, inst);
@@ -1407,12 +1426,16 @@ test "rv32 C.BEQZ not taken" {
 
 test "rv32 C.BNEZ taken" {
     var mem = testMem();
-    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_4_to_1: u4, rs1: u3, imm_8_to_6: u3, kind: u3 }{
+    // C.BNEZ offset: same encoding as C.BEQZ
+    // offset = 8: imm[3]=1, rest=0
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_2_to_1: u2, imm_7_to_6: u2, rs1: u3, imm_4_to_3: u2, imm_8: u1, kind: u3 }{
         .op = 0b01,
         .imm_5 = 0,
-        .imm_4_to_1 = 0b0100, // offset = 8
+        .imm_2_to_1 = 0,
+        .imm_7_to_6 = 0,
         .rs1 = 0, // x8
-        .imm_8_to_6 = 0,
+        .imm_4_to_3 = 0b01, // offset[4:3] = 01 → offset[3]=1
+        .imm_8 = 0,
         .kind = 0b111,
     });
     writeInst16(&mem, 0, inst);
@@ -1424,12 +1447,14 @@ test "rv32 C.BNEZ taken" {
 
 test "rv32 C.BNEZ not taken" {
     var mem = testMem();
-    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_4_to_1: u4, rs1: u3, imm_8_to_6: u3, kind: u3 }{
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_2_to_1: u2, imm_7_to_6: u2, rs1: u3, imm_4_to_3: u2, imm_8: u1, kind: u3 }{
         .op = 0b01,
         .imm_5 = 0,
-        .imm_4_to_1 = 0b0100,
+        .imm_2_to_1 = 0,
+        .imm_7_to_6 = 0,
         .rs1 = 0,
-        .imm_8_to_6 = 0,
+        .imm_4_to_3 = 0b01,
+        .imm_8 = 0,
         .kind = 0b111,
     });
     writeInst16(&mem, 0, inst);

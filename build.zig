@@ -16,8 +16,23 @@ pub fn build(b: *std.Build) void {
             .target = b.resolveTargetQuery(.{
                 .cpu_arch = .riscv64,
                 .cpu_model = .baseline,
+                .os_tag = .linux,
+                .ofmt = .elf,
+            }),
+            .optimize = .Debug,
+        }),
+    });
+    const install_test_lib = b.addInstallArtifact(test_lib, .{});
+
+    const test_lib_no_c = b.addLibrary(.{
+        .name = "test-no-compressed",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test/lib.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .riscv64,
+                .cpu_model = .baseline,
                 .cpu_features_sub = blk: {
-                    // temporarily disable compressed instructions
                     const FeatureSet = std.Target.Cpu.Feature.Set;
                     var features = FeatureSet.empty;
                     features.addFeature(@intFromEnum(std.Target.riscv.Feature.c));
@@ -29,7 +44,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
         }),
     });
-    const install_test_lib = b.addInstallArtifact(test_lib, .{});
+    const install_test_lib_no_c = b.addInstallArtifact(test_lib_no_c, .{});
 
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -42,6 +57,7 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     run_unit_tests.has_side_effects = true;
     run_unit_tests.step.dependOn(&install_test_lib.step);
+    run_unit_tests.step.dependOn(&install_test_lib_no_c.step);
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&run_unit_tests.step);
 }

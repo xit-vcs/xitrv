@@ -1601,6 +1601,401 @@ test "rv64 C.SDSP" {
 }
 
 // ============================================================
+// RV64M OP-32 tests (MULW, DIVW, DIVUW, REMW, REMUW)
+// ============================================================
+
+test "rv64 MULW" {
+    var mem = testMem();
+    // MULW x3, x1, x2: funct7=0000001, funct3=000, opcode=OP_32
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b000, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 7;
+    cpu.registers[2] = 6;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(42, cpu.registers[3]);
+}
+
+test "rv64 MULW overflow" {
+    var mem = testMem();
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b000, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 0x80000000; // -2147483648 as i32
+    cpu.registers[2] = 2;
+    _ = try cpu.step(&mem);
+    // (-2147483648 * 2) truncated to 32 bits = 0, sign-extended to 64 bits
+    try std.testing.expectEqual(0, cpu.registers[3]);
+}
+
+test "rv64 DIVW" {
+    var mem = testMem();
+    // DIVW x3, x1, x2: funct7=0000001, funct3=100, opcode=OP_32
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b100, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 42;
+    cpu.registers[2] = 5;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(8, cpu.registers[3]);
+}
+
+test "rv64 DIVW by zero" {
+    var mem = testMem();
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b100, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 42;
+    cpu.registers[2] = 0;
+    _ = try cpu.step(&mem);
+    // DIVW by zero → -1 sign-extended
+    try std.testing.expectEqual(@as(u64, @bitCast(@as(i64, -1))), cpu.registers[3]);
+}
+
+test "rv64 DIVUW" {
+    var mem = testMem();
+    // DIVUW x3, x1, x2: funct7=0000001, funct3=101, opcode=OP_32
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b101, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 0x80000000; // 2147483648 as u32
+    cpu.registers[2] = 3;
+    _ = try cpu.step(&mem);
+    // 2147483648 / 3 = 715827882, sign-extended (positive, so same)
+    try std.testing.expectEqual(715827882, cpu.registers[3]);
+}
+
+test "rv64 REMW" {
+    var mem = testMem();
+    // REMW x3, x1, x2: funct7=0000001, funct3=110, opcode=OP_32
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b110, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 42;
+    cpu.registers[2] = 5;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(2, cpu.registers[3]);
+}
+
+test "rv64 REMUW" {
+    var mem = testMem();
+    // REMUW x3, x1, x2: funct7=0000001, funct3=111, opcode=OP_32
+    writeInst(&mem, 0, encodeR(0b0000001, 2, 1, 0b111, 3, OP_32));
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[1] = 0x80000005; // large unsigned u32
+    cpu.registers[2] = 3;
+    _ = try cpu.step(&mem);
+    // 0x80000005 % 3 = 2147483653 % 3 = 1
+    try std.testing.expectEqual(@as(u64, @bitCast(@as(i64, 1))), cpu.registers[3]);
+}
+
+// ============================================================
+// Additional compressed instruction tests
+// ============================================================
+
+test "rv64 C.LD" {
+    var mem = testMem();
+    std.mem.writeInt(u64, mem[72..][0..8], 0xCAFEBABEDEADBEEF, .little);
+    // C.LD rd', offset(rs1'): offset = {imm_5_to_3, imm_7_to_6, 000}
+    // offset = 8: imm_5_to_3=0b001, imm_7_to_6=0b00
+    const inst: u16 = @bitCast(packed struct { op: u2, rd: u3, imm_7_to_6: u2, rs1: u3, imm_5_to_3: u3, kind: u3 }{
+        .op = 0b00,
+        .rd = 1, // x9
+        .imm_7_to_6 = 0b00,
+        .rs1 = 0, // x8
+        .imm_5_to_3 = 0b001, // offset = 8
+        .kind = 0b011,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[8] = 64;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xCAFEBABEDEADBEEF, cpu.registers[9]);
+}
+
+test "rv64 C.SD" {
+    var mem = testMem();
+    // C.SD rs2', offset(rs1'): offset = {imm_5_to_3, imm_7_to_6, 000}
+    // offset = 16: imm_5_to_3=0b010, imm_7_to_6=0b00
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u3, imm_7_to_6: u2, rs1: u3, imm_5_to_3: u3, kind: u3 }{
+        .op = 0b00,
+        .rs2 = 1, // x9
+        .imm_7_to_6 = 0b00,
+        .rs1 = 0, // x8
+        .imm_5_to_3 = 0b010, // offset = 16
+        .kind = 0b111,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[8] = 64;
+    cpu.registers[9] = 0x123456789ABCDEF0;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0x123456789ABCDEF0, std.mem.readInt(u64, mem[80..][0..8], .little));
+}
+
+test "rv32 C.LW" {
+    var mem = testMem();
+    std.mem.writeInt(u32, mem[72..][0..4], 0x12345678, .little);
+    // C.LW rd', offset(rs1'): offset = {imm_6, imm_5_to_3, imm_2, 00}
+    // offset = 8: bit 3 set → imm_5_to_3=0b001, imm_2=0, imm_6=0
+    const inst: u16 = @bitCast(packed struct { op: u2, rd: u3, imm_6: u1, imm_2: u1, rs1: u3, imm_5_to_3: u3, kind: u3 }{
+        .op = 0b00,
+        .rd = 1, // x9
+        .imm_6 = 0,
+        .imm_2 = 0,
+        .rs1 = 0, // x8
+        .imm_5_to_3 = 0b001, // offset = 8
+        .kind = 0b010,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[8] = 64;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0x12345678, cpu.registers[9]);
+}
+
+test "rv32 C.JAL" {
+    var mem = testMem();
+    // C.JAL offset: same encoding as C.J but kind=001, links to ra
+    // offset = +10: imm[3:1]=101, rest=0
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_5: u1, imm_3_to_1: u3, imm_7: u1, imm_6: u1, imm_10: u1, imm_9_to_8: u2, imm_4: u1, imm_11: u1, kind: u3 }{
+        .op = 0b01,
+        .imm_5 = 0,
+        .imm_3_to_1 = 0b101, // offset[3:1] = 101 → offset = 10
+        .imm_7 = 0,
+        .imm_6 = 0,
+        .imm_10 = 0,
+        .imm_9_to_8 = 0,
+        .imm_4 = 0,
+        .imm_11 = 0,
+        .kind = 0b001,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(10, cpu.pc);
+    try std.testing.expectEqual(2, cpu.registers[1]); // ra = pc + 2
+}
+
+test "rv32 C.LUI" {
+    var mem = testMem();
+    // C.LUI rd, nzimm: rd = sext(nzimm) << 12
+    // nzimm = 3: imm_4_to_0=0b00011, imm_5=0
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_4_to_0: u5, rd: u5, imm_5: u1, kind: u3 }{
+        .op = 0b01,
+        .imm_4_to_0 = 0b00011,
+        .rd = 3,
+        .imm_5 = 0,
+        .kind = 0b011,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0x3000, cpu.registers[3]);
+}
+
+test "rv64 C.LUI negative" {
+    var mem = testMem();
+    // C.LUI rd, nzimm: nzimm = -1 (all bits set) → rd = 0xFFFFF000 sign-extended
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_4_to_0: u5, rd: u5, imm_5: u1, kind: u3 }{
+        .op = 0b01,
+        .imm_4_to_0 = 0b11111,
+        .rd = 3,
+        .imm_5 = 1, // sign bit
+        .kind = 0b011,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xFFFFFFFFFFFFF000, cpu.registers[3]);
+}
+
+test "rv32 C.ANDI" {
+    var mem = testMem();
+    // C.ANDI rd', imm: rd' = rd' & sext(imm)
+    // imm = 0x0F (i6 = 15): imm_4_to_0=0b01111, imm_5=0
+    const inst: u16 = @bitCast(packed struct { op: u2, rest_4_to_0: u5, rd: u3, kind: u2, rest_5: u1, funct3: u3 }{
+        .op = 0b01,
+        .rest_4_to_0 = 0b01111, // imm = 15
+        .rd = 0, // x8
+        .kind = 0b10, // andi
+        .rest_5 = 0,
+        .funct3 = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[8] = 0xFF;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0x0F, cpu.registers[8]);
+}
+
+test "rv32 C.XOR" {
+    var mem = testMem();
+    // C.XOR rd', rs2': rd' = rd' ^ rs2'
+    // sub_and kind=11, sub_kind=01 (xor), rest_5=0
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u3, sub_kind: u2, rd: u3, kind: u2, rest_5: u1, funct3: u3 }{
+        .op = 0b01,
+        .rs2 = 1, // x9
+        .sub_kind = 0b01, // xor
+        .rd = 0, // x8
+        .kind = 0b11, // sub_and
+        .rest_5 = 0,
+        .funct3 = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[8] = 0xFF;
+    cpu.registers[9] = 0x0F;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xF0, cpu.registers[8]);
+}
+
+test "rv32 C.OR" {
+    var mem = testMem();
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u3, sub_kind: u2, rd: u3, kind: u2, rest_5: u1, funct3: u3 }{
+        .op = 0b01,
+        .rs2 = 1, // x9
+        .sub_kind = 0b10, // or
+        .rd = 0, // x8
+        .kind = 0b11,
+        .rest_5 = 0,
+        .funct3 = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[8] = 0xF0;
+    cpu.registers[9] = 0x0F;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xFF, cpu.registers[8]);
+}
+
+test "rv64 C.SUBW" {
+    var mem = testMem();
+    // C.SUBW rd', rs2': rd' = sext((rd'[31:0] - rs2'[31:0])[31:0])
+    // sub_and kind=11, sub_kind=00 (subw), rest_5=1
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u3, sub_kind: u2, rd: u3, kind: u2, rest_5: u1, funct3: u3 }{
+        .op = 0b01,
+        .rs2 = 1, // x9
+        .sub_kind = 0b00, // subw
+        .rd = 0, // x8
+        .kind = 0b11,
+        .rest_5 = 1, // selects W variants
+        .funct3 = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[8] = 10;
+    cpu.registers[9] = 3;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(7, cpu.registers[8]);
+}
+
+test "rv64 C.ADDW" {
+    var mem = testMem();
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u3, sub_kind: u2, rd: u3, kind: u2, rest_5: u1, funct3: u3 }{
+        .op = 0b01,
+        .rs2 = 1, // x9
+        .sub_kind = 0b01, // addw
+        .rd = 0, // x8
+        .kind = 0b11,
+        .rest_5 = 1,
+        .funct3 = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[8] = 0x7FFFFFFF; // max i32
+    cpu.registers[9] = 1;
+    _ = try cpu.step(&mem);
+    // 0x7FFFFFFF + 1 = 0x80000000, sign-extended to 0xFFFFFFFF80000000
+    try std.testing.expectEqual(@as(u64, @bitCast(@as(i64, -2147483648))), cpu.registers[8]);
+}
+
+test "rv64 C.SLLI" {
+    var mem = testMem();
+    // C.SLLI rd, shamt: rd = rd << shamt
+    const inst: u16 = @bitCast(packed struct { op: u2, rest_4_to_0: u5, rd: u5, rest_5: u1, kind: u3 }{
+        .op = 0b10,
+        .rest_4_to_0 = 4, // shamt = 4
+        .rd = 3,
+        .rest_5 = 0,
+        .kind = 0b000,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv64).init();
+    cpu.registers[3] = 0xFF;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xFF0, cpu.registers[3]);
+}
+
+test "rv32 C.LWSP" {
+    var mem = testMem();
+    std.mem.writeInt(u32, mem[64..][0..4], 0xDEADBEEF, .little);
+    // C.LWSP rd, offset(sp): offset = {imm_7_to_6, imm_5, imm_4_to_2, 00}
+    // offset = 64: 64 = 0b01_0_000_00 → imm_7_to_6=0b01, imm_5=0, imm_4_to_2=0b000
+    const inst: u16 = @bitCast(packed struct { op: u2, imm_7_to_6: u2, imm_4_to_2: u3, rd: u5, imm_5: u1, kind: u3 }{
+        .op = 0b10,
+        .imm_7_to_6 = 0b01,
+        .imm_4_to_2 = 0b000,
+        .rd = 3,
+        .imm_5 = 0,
+        .kind = 0b010,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[2] = 0; // sp
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(@as(u32, @bitCast(@as(i32, @bitCast(@as(u32, 0xDEADBEEF))))), cpu.registers[3]);
+}
+
+test "rv32 C.SWSP" {
+    var mem = testMem();
+    // C.SWSP rs2, offset(sp): offset = {imm_7_to_6, imm_5_to_2, 00}
+    // offset = 64: 64 = 0b01_0000_00 → imm_7_to_6=0b01, imm_5_to_2=0b0000
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u5, imm_7_to_6: u2, imm_5_to_2: u4, kind: u3 }{
+        .op = 0b10,
+        .rs2 = 3,
+        .imm_7_to_6 = 0b01,
+        .imm_5_to_2 = 0b0000,
+        .kind = 0b110,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[2] = 0; // sp
+    cpu.registers[3] = 0x12345678;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0x12345678, std.mem.readInt(u32, mem[64..][0..4], .little));
+}
+
+test "rv32 C.MV" {
+    var mem = testMem();
+    // C.MV rd, rs2: rd = rs2
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u5, rs1_or_rd: u5, add_kind: u1, kind: u3 }{
+        .op = 0b10,
+        .rs2 = 2,
+        .rs1_or_rd = 3,
+        .add_kind = 0, // mv (jr_kind=0 with rs2!=0)
+        .kind = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[2] = 42;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(42, cpu.registers[3]);
+}
+
+test "rv32 C.JALR" {
+    var mem = testMem();
+    // C.JALR rs1: pc = rs1, ra = pc + 2
+    const inst: u16 = @bitCast(packed struct { op: u2, rs2: u5, rs1_or_rd: u5, add_kind: u1, kind: u3 }{
+        .op = 0b10,
+        .rs2 = 0, // rs2=0 selects JALR (not ADD)
+        .rs1_or_rd = 3,
+        .add_kind = 1, // jalr (kind=1 with rs2=0)
+        .kind = 0b100,
+    });
+    writeInst16(&mem, 0, inst);
+    var cpu = Cpu(.rv32).init();
+    cpu.registers[3] = 42;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(42, cpu.pc);
+    try std.testing.expectEqual(2, cpu.registers[1]); // ra = pc + 2
+}
+
+// ============================================================
 // Instruction encoding helpers
 // ============================================================
 

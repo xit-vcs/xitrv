@@ -50,6 +50,12 @@ test "recur" {
     try testRecur(allocator, "zig-out/lib/libtest-no-compressed.so");
 }
 
+test "exercise" {
+    const allocator = std.testing.allocator;
+    try testExercise(allocator, "zig-out/lib/libtest.so");
+    try testExercise(allocator, "zig-out/lib/libtest-no-compressed.so");
+}
+
 fn testInc(allocator: std.mem.Allocator, file_name: []const u8) !void {
     const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
     defer test_file.close();
@@ -120,6 +126,42 @@ fn testRecur(allocator: std.mem.Allocator, file_name: []const u8) !void {
     } else return error.MaxStepCountExceeded;
 
     try std.testing.expectEqual(10, cpu.registers[10]);
+}
+
+fn testExercise(allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+    defer test_file.close();
+
+    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    defer elf.deinit(allocator);
+
+    const func_symbol = elf.name_to_dynsym.get("exercise") orelse return error.SymbolNotFound;
+    const section = elf.sections.items[func_symbol.shndx];
+    const func_offset = func_symbol.value - section.addr;
+
+    var mem = try allocator.alloc(u8, section.kind.progbits.buffer.len + stack_size);
+    defer allocator.free(mem);
+    @memcpy(mem[0..section.kind.progbits.buffer.len], section.kind.progbits.buffer);
+
+    var cpu = Cpu(.rv64).init();
+    cpu.pc = func_offset;
+    cpu.registers[2] = section.kind.progbits.buffer.len + stack_size; // stack pointer (top of stack)
+    cpu.registers[10] = 42; // seed
+
+    for (0..100_000) |_| {
+        const step = try cpu.step(mem);
+        switch (step) {
+            .cont => {},
+            .exit => break,
+            .system => {
+                switch (step.system) {
+                    else => return error.InvalidEcall,
+                }
+            },
+        }
+    } else return error.MaxStepCountExceeded;
+
+    try std.testing.expectEqual(1471, cpu.registers[10]);
 }
 
 // ============================================================
@@ -622,6 +664,25 @@ test "rv64 LUI" {
     var cpu = Cpu(.rv64).init();
     _ = try cpu.step(&mem);
     try std.testing.expectEqual(0x12345000, cpu.registers[1]);
+}
+
+test "rv64 LUI negative" {
+    var mem = testMem();
+    // imm=0xFFFFF → upper 32 bits = 0xFFFFF000, sign-extended to 64-bit
+    writeInst(&mem, 0, encodeU(0xFFFFF, 1, LUI));
+    var cpu = Cpu(.rv64).init();
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(0xFFFFFFFFFFFFF000, cpu.registers[1]);
+}
+
+test "rv64 AUIPC negative" {
+    var mem = testMem();
+    // imm=0xFFFFF → -0x1000 offset, PC=32 → 32 + 0xFFFFFFFFFFFFF000
+    writeInst(&mem, 32, encodeU(0xFFFFF, 1, AUIPC));
+    var cpu = Cpu(.rv64).init();
+    cpu.pc = 32;
+    _ = try cpu.step(&mem);
+    try std.testing.expectEqual(32 +% @as(u64, 0xFFFFFFFFFFFFF000), cpu.registers[1]);
 }
 
 test "rv32 AUIPC" {

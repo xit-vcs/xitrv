@@ -1046,7 +1046,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.setRegister(inst_parts.rd, @as(URegister, inst_parts.imm) << 12);
+                                const imm_shifted: u32 = @as(u32, inst_parts.imm) << 12;
+                                self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, @as(i32, @bitCast(imm_shifted)))));
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .lui = {} } } };
                             },
@@ -1055,7 +1056,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rd: u5,
                                     imm: u20,
                                 } = @bitCast(instruction.rest);
-                                self.setRegister(inst_parts.rd, self.pc +% (@as(URegister, inst_parts.imm) << 12));
+                                const imm_shifted: u32 = @as(u32, inst_parts.imm) << 12;
+                                self.setRegister(inst_parts.rd, self.pc +% @as(URegister, @bitCast(@as(IRegister, @as(i32, @bitCast(imm_shifted))))));
                                 self.pc += instruction_size;
                                 return .{ .cont = .{ .inst11 = .{ .auipc = {} } } };
                             },
@@ -1363,6 +1365,20 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                 return error.InvalidInstruction11Rv64OpAltKind;
                                             }
                                         },
+                                        .m_ext => {
+                                            if (std.meta.intToEnum(Instruction11Rv64OpMextKind, parts.funct3)) |rv64_op_mext_kind| {
+                                                const result: i32 = switch (rv64_op_mext_kind) {
+                                                    .mulw => @mulWithOverflow(src1_32, src2_32)[0],
+                                                    .divw => if (src2_32 == 0) -1 else if (src1_32 == std.math.minInt(i32) and src2_32 == -1) std.math.minInt(i32) else @divTrunc(src1_32, src2_32),
+                                                    .divuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) std.math.maxInt(u32) else @as(u32, @bitCast(src2_32)) / @as(u32, @bitCast(src1_32))),
+                                                    .remw => if (src2_32 == 0) src1_32 else if (src1_32 == std.math.minInt(i32) and src2_32 == -1) 0 else @rem(src1_32, src2_32),
+                                                    .remuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) @as(u32, @bitCast(src1_32)) else @as(u32, @bitCast(src1_32)) % @as(u32, @bitCast(src2_32))),
+                                                };
+                                                self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
+                                            } else |_| {
+                                                return error.InvalidInstruction11Rv64OpMextKind;
+                                            }
+                                        },
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .rv64_op = inst11_rv64_op_kind } } };
@@ -1614,6 +1630,14 @@ pub const Instruction11RV64IKind = enum(u3) {
 pub const Instruction11Rv64OpKind = enum(u7) {
     base = 0b00000_00,
     alt = 0b01000_00,
+    m_ext = 0b00000_01,
+};
+pub const Instruction11Rv64OpMextKind = enum(u3) {
+    mulw = 0b000,
+    divw = 0b100,
+    divuw = 0b101,
+    remw = 0b110,
+    remuw = 0b111,
 };
 pub const Instruction11Rv64OpBaseKind = enum(u3) {
     addw = 0b000,

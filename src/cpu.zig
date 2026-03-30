@@ -1370,7 +1370,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                 const result: i32 = switch (rv64_op_mext_kind) {
                                                     .mulw => @mulWithOverflow(src1_32, src2_32)[0],
                                                     .divw => if (src2_32 == 0) -1 else if (src1_32 == std.math.minInt(i32) and src2_32 == -1) std.math.minInt(i32) else @divTrunc(src1_32, src2_32),
-                                                    .divuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) std.math.maxInt(u32) else @as(u32, @bitCast(src2_32)) / @as(u32, @bitCast(src1_32))),
+                                                    .divuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) std.math.maxInt(u32) else @as(u32, @bitCast(src1_32)) / @as(u32, @bitCast(src2_32))),
                                                     .remw => if (src2_32 == 0) src1_32 else if (src1_32 == std.math.minInt(i32) and src2_32 == -1) 0 else @rem(src1_32, src2_32),
                                                     .remuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) @as(u32, @bitCast(src1_32)) else @as(u32, @bitCast(src1_32)) % @as(u32, @bitCast(src2_32))),
                                                 };

@@ -15,7 +15,7 @@ test "hello world" {
     defer allocator.free(mem);
     @memcpy(mem[0..hello_world.len], hello_world);
 
-    var output = std.ArrayList(u8){};
+    var output = std.ArrayList(u8).empty;
     defer output.deinit(allocator);
 
     var cpu = Cpu(.rv32).init();
@@ -39,28 +39,33 @@ test "hello world" {
 }
 
 test "inc" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
-    try testInc(allocator, "zig-out/lib/libtest.so");
-    try testInc(allocator, "zig-out/lib/libtest-no-compressed.so");
+    try testInc(io, allocator, "zig-out/lib/libtest.so");
+    try testInc(io, allocator, "zig-out/lib/libtest-no-compressed.so");
 }
 
 test "recur" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
-    try testRecur(allocator, "zig-out/lib/libtest.so");
-    try testRecur(allocator, "zig-out/lib/libtest-no-compressed.so");
+    try testRecur(io, allocator, "zig-out/lib/libtest.so");
+    try testRecur(io, allocator, "zig-out/lib/libtest-no-compressed.so");
 }
 
 test "exercise" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
-    try testExercise(allocator, "zig-out/lib/libtest.so");
-    try testExercise(allocator, "zig-out/lib/libtest-no-compressed.so");
+    try testExercise(io, allocator, "zig-out/lib/libtest.so");
+    try testExercise(io, allocator, "zig-out/lib/libtest-no-compressed.so");
 }
 
-fn testInc(allocator: std.mem.Allocator, file_name: []const u8) !void {
-    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
-    defer test_file.close();
+fn testInc(io: std.Io, allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.Io.Dir.cwd().openFile(io, file_name, .{});
+    defer test_file.close(io);
 
-    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = test_file.reader(io, &read_buf);
+    var elf = try Elf.init(allocator, &file_reader.interface);
     defer elf.deinit(allocator);
 
     const func_symbol = elf.name_to_dynsym.get("inc") orelse return error.SymbolNotFound;
@@ -92,11 +97,13 @@ fn testInc(allocator: std.mem.Allocator, file_name: []const u8) !void {
     try std.testing.expectEqual(43, cpu.registers[10]);
 }
 
-fn testRecur(allocator: std.mem.Allocator, file_name: []const u8) !void {
-    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
-    defer test_file.close();
+fn testRecur(io: std.Io, allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.Io.Dir.cwd().openFile(io, file_name, .{});
+    defer test_file.close(io);
 
-    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = test_file.reader(io, &read_buf);
+    var elf = try Elf.init(allocator, &file_reader.interface);
     defer elf.deinit(allocator);
 
     const func_symbol = elf.name_to_dynsym.get("recur") orelse return error.SymbolNotFound;
@@ -128,11 +135,13 @@ fn testRecur(allocator: std.mem.Allocator, file_name: []const u8) !void {
     try std.testing.expectEqual(10, cpu.registers[10]);
 }
 
-fn testExercise(allocator: std.mem.Allocator, file_name: []const u8) !void {
-    const test_file = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
-    defer test_file.close();
+fn testExercise(io: std.Io, allocator: std.mem.Allocator, file_name: []const u8) !void {
+    const test_file = try std.Io.Dir.cwd().openFile(io, file_name, .{});
+    defer test_file.close(io);
 
-    var elf = try Elf.init(allocator, test_file.deprecatedReader());
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = test_file.reader(io, &read_buf);
+    var elf = try Elf.init(allocator, &file_reader.interface);
     defer elf.deinit(allocator);
 
     const func_symbol = elf.name_to_dynsym.get("exercise") orelse return error.SymbolNotFound;

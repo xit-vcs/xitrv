@@ -82,8 +82,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(instruction_int);
 
-                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction00Kind, instruction.kind)});
-                    if (std.meta.intToEnum(Instruction00Kind, instruction.kind)) |inst00_kind| {
+                    //std.debug.print("{}\n", .{try std.enums.fromInt(Instruction00Kind, instruction.kind)});
+                    if (std.enums.fromInt(Instruction00Kind, instruction.kind)) |inst00_kind| {
                         switch (inst00_kind) {
                             .addi4spn => {
                                 const inst_parts: packed struct {
@@ -220,7 +220,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 return .{ .cont = .{ .inst00 = .{ .sd = {} } } };
                             },
                         }
-                    } else |_| {
+                    } else {
                         return error.InvalidInstruction00Kind;
                     }
                     return error.NotImplemented;
@@ -234,8 +234,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(instruction_int);
 
-                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction01Kind, instruction.kind)});
-                    if (std.meta.intToEnum(Instruction01Kind, instruction.kind)) |inst01_kind| {
+                    //std.debug.print("{}\n", .{try std.enums.fromInt(Instruction01Kind, instruction.kind)});
+                    if (std.enums.fromInt(Instruction01Kind, instruction.kind)) |inst01_kind| {
                         const inst01: Instruction01 = blk: {
                             switch (inst01_kind) {
                                 .addi => {
@@ -372,7 +372,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         kind: u2,
                                         rest_5: u1,
                                     } = @bitCast(instruction.rest);
-                                    if (std.meta.intToEnum(Instruction01SsasKind, inst_parts.kind)) |inst01_ssas_kind| {
+                                    if (std.enums.fromInt(Instruction01SsasKind, inst_parts.kind)) |inst01_ssas_kind| {
                                         const inst01_ssas: Instruction01Ssas = blk2: {
                                             switch (inst01_ssas_kind) {
                                                 .srli => {
@@ -450,7 +450,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                     const rd_value = self.registers[rd_register];
                                                     const rs2_value = self.registers[rs2_register];
                                                     if (inst_parts.rest_5 == 0) {
-                                                        if (std.meta.intToEnum(Instruction01SsasSubandKind, rest_4_to_0_parts.kind)) |inst01_ssas_suband_kind| {
+                                                        if (std.enums.fromInt(Instruction01SsasSubandKind, rest_4_to_0_parts.kind)) |inst01_ssas_suband_kind| {
                                                             switch (inst01_ssas_suband_kind) {
                                                                 .sub => self.setRegister(rd_register, @subWithOverflow(rd_value, rs2_value)[0]),
                                                                 .xor_ => self.setRegister(rd_register, rd_value ^ rs2_value),
@@ -458,14 +458,14 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                                 .and_ => self.setRegister(rd_register, rd_value & rs2_value),
                                                             }
                                                             break :blk2 .{ .sub_and = inst01_ssas_suband_kind };
-                                                        } else |_| {
+                                                        } else {
                                                             return error.InvalidInstruction01SsasSubandKind;
                                                         }
                                                     } else {
                                                         if (cpu_kind != .rv64) {
                                                             return error.RV64OnlyInstruction;
                                                         }
-                                                        if (std.meta.intToEnum(Instruction01SsasSubwAddwKind, rest_4_to_0_parts.kind)) |inst01_ssas_subw_addw_kind| {
+                                                        if (std.enums.fromInt(Instruction01SsasSubwAddwKind, rest_4_to_0_parts.kind)) |inst01_ssas_subw_addw_kind| {
                                                             const rd_32: i32 = @truncate(@as(IRegister, @bitCast(rd_value)));
                                                             const rs2_32: i32 = @truncate(@as(IRegister, @bitCast(rs2_value)));
                                                             switch (inst01_ssas_subw_addw_kind) {
@@ -479,7 +479,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                                 },
                                                             }
                                                             break :blk2 .{ .sub_and = inst01_ssas_subw_addw_kind.toSubandKind() };
-                                                        } else |_| {
+                                                        } else {
                                                             return error.InvalidInstruction01SsasSubwAddwKind;
                                                         }
                                                     }
@@ -488,7 +488,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         };
                                         self.pc += instruction_size;
                                         break :blk .{ .ssas = inst01_ssas };
-                                    } else |_| {
+                                    } else {
                                         return error.InvalidInstruction01SsasKind;
                                     }
                                 },
@@ -600,7 +600,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             }
                         };
                         return .{ .cont = .{ .inst01 = inst01 } };
-                    } else |_| {
+                    } else {
                         return error.InvalidInstruction01Kind;
                     }
                 },
@@ -613,8 +613,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         kind: u3,
                     } = @bitCast(instruction_int);
 
-                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction10Kind, instruction.kind)});
-                    if (std.meta.intToEnum(Instruction10Kind, instruction.kind)) |inst10_kind| {
+                    //std.debug.print("{}\n", .{try std.enums.fromInt(Instruction10Kind, instruction.kind)});
+                    if (std.enums.fromInt(Instruction10Kind, instruction.kind)) |inst10_kind| {
                         const inst10: Instruction10 = blk: {
                             switch (inst10_kind) {
                                 .slli => {
@@ -775,7 +775,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                             }
                         };
                         return .{ .cont = .{ .inst10 = inst10 } };
-                    } else |_| {
+                    } else {
                         return error.InvalidInstruction10Kind;
                     }
                 },
@@ -788,8 +788,8 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                         rest: u25,
                     } = @bitCast(instruction_int);
 
-                    //std.debug.print("{}\n", .{try std.meta.intToEnum(Instruction11Kind, instruction.kind)});
-                    if (std.meta.intToEnum(Instruction11Kind, instruction.kind)) |inst11_kind| {
+                    //std.debug.print("{}\n", .{try std.enums.fromInt(Instruction11Kind, instruction.kind)});
+                    if (std.enums.fromInt(Instruction11Kind, instruction.kind)) |inst11_kind| {
                         switch (inst11_kind) {
                             .op => {
                                 const inst_parts: packed struct {
@@ -797,7 +797,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     kind: u7,
                                 } = @bitCast(instruction.rest);
 
-                                if (std.meta.intToEnum(Instruction11OpKind, inst_parts.kind)) |inst11_op_kind| {
+                                if (std.enums.fromInt(Instruction11OpKind, inst_parts.kind)) |inst11_op_kind| {
                                     const parts: packed struct {
                                         rd: u5,
                                         kind: u3,
@@ -811,7 +811,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     const inst11_op: Instruction11Op = blk: {
                                         switch (inst11_op_kind) {
                                             .base => {
-                                                if (std.meta.intToEnum(Instruction11OpBaseKind, parts.kind)) |inst11_op_base_kind| {
+                                                if (std.enums.fromInt(Instruction11OpBaseKind, parts.kind)) |inst11_op_base_kind| {
                                                     switch (inst11_op_base_kind) {
                                                         .add => self.setRegister(parts.rd, @addWithOverflow(source1_value, source2_value)[0]),
                                                         .sll => {
@@ -839,12 +839,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                         .and_ => self.setRegister(parts.rd, source1_value & source2_value),
                                                     }
                                                     break :blk .{ .base = inst11_op_base_kind };
-                                                } else |_| {
+                                                } else {
                                                     return error.InvalidInstruction11OpBaseKind;
                                                 }
                                             },
                                             .alt => {
-                                                if (std.meta.intToEnum(Instruction11OpAltKind, parts.kind)) |inst11_op_alt_kind| {
+                                                if (std.enums.fromInt(Instruction11OpAltKind, parts.kind)) |inst11_op_alt_kind| {
                                                     switch (inst11_op_alt_kind) {
                                                         .sub => self.setRegister(parts.rd, @subWithOverflow(source1_value, source2_value)[0]),
                                                         .sra => {
@@ -857,12 +857,12 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                         },
                                                     }
                                                     break :blk .{ .alt = inst11_op_alt_kind };
-                                                } else |_| {
+                                                } else {
                                                     return error.InvalidInstruction11OpAltKind;
                                                 }
                                             },
                                             .m_ext => {
-                                                if (std.meta.intToEnum(Instruction11OpMextKind, parts.kind)) |inst11_op_mext_kind| {
+                                                if (std.enums.fromInt(Instruction11OpMextKind, parts.kind)) |inst11_op_mext_kind| {
                                                     switch (inst11_op_mext_kind) {
                                                         .mul => {
                                                             const s1: IRegister = @bitCast(source1_value);
@@ -921,7 +921,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                         },
                                                     }
                                                     break :blk .{ .m_ext = inst11_op_mext_kind };
-                                                } else |_| {
+                                                } else {
                                                     return error.InvalidInstruction11OpMextKind;
                                                 }
                                             },
@@ -929,7 +929,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     };
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .op = inst11_op } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11OpKind;
                                 }
                             },
@@ -940,7 +940,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     rest: u17,
                                 } = @bitCast(instruction.rest);
 
-                                if (std.meta.intToEnum(Instruction11OpImmKind, inst_parts.kind)) |inst11_op_imm_kind| {
+                                if (std.enums.fromInt(Instruction11OpImmKind, inst_parts.kind)) |inst11_op_imm_kind| {
                                     const parts: packed struct {
                                         rs1: u5,
                                         imm: i12,
@@ -991,7 +991,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .op_imm = inst11_op_imm_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11OpImmKind;
                                 }
                             },
@@ -1085,7 +1085,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     .imm_11 = inst_parts.imm_11,
                                     .imm_12 = inst_parts.imm_12,
                                 });
-                                if (std.meta.intToEnum(Instruction11BranchKind, inst_parts.kind)) |inst11_branch_kind| {
+                                if (std.enums.fromInt(Instruction11BranchKind, inst_parts.kind)) |inst11_branch_kind| {
                                     const cond = switch (inst11_branch_kind) {
                                         .beq => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) == @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
                                         .bne => @as(IRegister, @bitCast(self.registers[inst_parts.rs1])) != @as(IRegister, @bitCast(self.registers[inst_parts.rs2])),
@@ -1100,7 +1100,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                         self.pc += instruction_size;
                                     }
                                     return .{ .cont = .{ .inst11 = .{ .branch = inst11_branch_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11BranchKind;
                                 }
                             },
@@ -1113,7 +1113,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 } = @bitCast(instruction.rest);
                                 const source_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[inst_parts.rs1])) + inst_parts.imm);
 
-                                if (std.meta.intToEnum(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
+                                if (std.enums.fromInt(Instruction11LoadKind, inst_parts.kind)) |inst11_load_kind| {
                                     switch (inst11_load_kind) {
                                         .lb => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, @as(i8, @bitCast(mem[source_address]))))),
                                         .lh => self.setRegister(inst_parts.rd, @bitCast(@as(IRegister, std.mem.readInt(i16, mem[source_address..][0..2], .little)))),
@@ -1135,7 +1135,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .load = inst11_load_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11LoadKind;
                                 }
                             },
@@ -1158,7 +1158,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                 const dest_address: URegister = @intCast(@as(IRegister, @intCast(self.registers[inst_parts.rs1])) + imm_value);
                                 const source_value = self.registers[inst_parts.rs2];
 
-                                if (std.meta.intToEnum(Instruction11StoreKind, inst_parts.kind)) |inst11_store_kind| {
+                                if (std.enums.fromInt(Instruction11StoreKind, inst_parts.kind)) |inst11_store_kind| {
                                     switch (inst11_store_kind) {
                                         .sb => mem[dest_address] = @intCast(source_value),
                                         .sh => {
@@ -1178,7 +1178,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .store = inst11_store_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11StoreKind;
                                 }
                             },
@@ -1191,7 +1191,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     imm: u12,
                                 } = @bitCast(instruction.rest);
 
-                                if (std.meta.intToEnum(Instruction11SystemKind, inst_parts.kind)) |inst11_system_kind| {
+                                if (std.enums.fromInt(Instruction11SystemKind, inst_parts.kind)) |inst11_system_kind| {
                                     switch (inst11_system_kind) {
                                         .ecall_ebreak => {
                                             switch (inst_parts.imm) {
@@ -1272,7 +1272,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .system = inst11_system_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11SystemKind;
                                 }
                             },
@@ -1287,7 +1287,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     imm: i12,
                                 } = @bitCast(instruction.rest);
 
-                                if (std.meta.intToEnum(Instruction11RV64IKind, inst_parts.kind)) |inst11_rv64i_kind| {
+                                if (std.enums.fromInt(Instruction11RV64IKind, inst_parts.kind)) |inst11_rv64i_kind| {
                                     const src32: i32 = @truncate(@as(IRegister, @bitCast(self.registers[inst_parts.rs1])));
                                     switch (inst11_rv64i_kind) {
                                         .addiw => {
@@ -1315,7 +1315,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .rv64i = inst11_rv64i_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11RV64IKind;
                                 }
                             },
@@ -1328,7 +1328,7 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                     kind: u7,
                                 } = @bitCast(instruction.rest);
 
-                                if (std.meta.intToEnum(Instruction11Rv64OpKind, inst_parts.kind)) |inst11_rv64_op_kind| {
+                                if (std.enums.fromInt(Instruction11Rv64OpKind, inst_parts.kind)) |inst11_rv64_op_kind| {
                                     const parts: packed struct {
                                         rd: u5,
                                         funct3: u3,
@@ -1343,30 +1343,30 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
 
                                     switch (inst11_rv64_op_kind) {
                                         .base => {
-                                            if (std.meta.intToEnum(Instruction11Rv64OpBaseKind, parts.funct3)) |rv64_op_base_kind| {
+                                            if (std.enums.fromInt(Instruction11Rv64OpBaseKind, parts.funct3)) |rv64_op_base_kind| {
                                                 const result: i32 = switch (rv64_op_base_kind) {
                                                     .addw => @addWithOverflow(src1_32, src2_32)[0],
                                                     .sllw => @bitCast(@as(u32, @bitCast(src1_32)) << usrc2_5),
                                                     .srlw => @bitCast(usrc1_32 >> usrc2_5),
                                                 };
                                                 self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
-                                            } else |_| {
+                                            } else {
                                                 return error.InvalidInstruction11Rv64OpBaseKind;
                                             }
                                         },
                                         .alt => {
-                                            if (std.meta.intToEnum(Instruction11Rv64OpAltKind, parts.funct3)) |rv64_op_alt_kind| {
+                                            if (std.enums.fromInt(Instruction11Rv64OpAltKind, parts.funct3)) |rv64_op_alt_kind| {
                                                 const result: i32 = switch (rv64_op_alt_kind) {
                                                     .subw => @subWithOverflow(src1_32, src2_32)[0],
                                                     .sraw => src1_32 >> usrc2_5,
                                                 };
                                                 self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
-                                            } else |_| {
+                                            } else {
                                                 return error.InvalidInstruction11Rv64OpAltKind;
                                             }
                                         },
                                         .m_ext => {
-                                            if (std.meta.intToEnum(Instruction11Rv64OpMextKind, parts.funct3)) |rv64_op_mext_kind| {
+                                            if (std.enums.fromInt(Instruction11Rv64OpMextKind, parts.funct3)) |rv64_op_mext_kind| {
                                                 const result: i32 = switch (rv64_op_mext_kind) {
                                                     .mulw => @mulWithOverflow(src1_32, src2_32)[0],
                                                     .divw => if (src2_32 == 0) -1 else if (src1_32 == std.math.minInt(i32) and src2_32 == -1) std.math.minInt(i32) else @divTrunc(src1_32, src2_32),
@@ -1375,19 +1375,19 @@ pub fn Cpu(comptime cpu_kind: CpuKind) type {
                                                     .remuw => @bitCast(if (@as(u32, @bitCast(src2_32)) == 0) @as(u32, @bitCast(src1_32)) else @as(u32, @bitCast(src1_32)) % @as(u32, @bitCast(src2_32))),
                                                 };
                                                 self.setRegister(parts.rd, @bitCast(@as(IRegister, result)));
-                                            } else |_| {
+                                            } else {
                                                 return error.InvalidInstruction11Rv64OpMextKind;
                                             }
                                         },
                                     }
                                     self.pc += instruction_size;
                                     return .{ .cont = .{ .inst11 = .{ .rv64_op = inst11_rv64_op_kind } } };
-                                } else |_| {
+                                } else {
                                     return error.InvalidInstruction11Rv64OpKind;
                                 }
                             },
                         }
-                    } else |_| {
+                    } else {
                         return error.InvalidInstruction11Kind;
                     }
                 },

@@ -56,13 +56,12 @@ pub const Symbol = struct {
     size: u64,
 
     pub fn init(buffer: []const u8, endian: std.builtin.Endian) !Symbol {
-        var stream = std.io.fixedBufferStream(buffer);
-        const reader = stream.reader();
-        const entry_name = try reader.readInt(u32, endian);
-        const entry_info = try reader.readInt(u8, endian);
+        if (buffer.len < 24) return error.BufferTooSmall;
+        const entry_name = std.mem.readInt(u32, buffer[0..4], endian);
+        const entry_info = buffer[4];
         const kind = entry_info & 0xf;
         const binding = entry_info >> 4;
-        const other = try reader.readInt(u8, endian);
+        const other = buffer[5];
         return Symbol{
             .kind = switch (kind) {
                 0 => .none,
@@ -91,9 +90,9 @@ pub const Symbol = struct {
             },
             .name_off = entry_name,
             .name_str = undefined,
-            .shndx = try reader.readInt(u16, endian),
-            .value = try reader.readInt(u64, endian),
-            .size = try reader.readInt(u64, endian),
+            .shndx = std.mem.readInt(u16, buffer[6..8], endian),
+            .value = std.mem.readInt(u64, buffer[8..16], endian),
+            .size = std.mem.readInt(u64, buffer[16..24], endian),
         };
     }
 };
@@ -108,7 +107,7 @@ pub const Section = struct {
         },
         symtab,
         strtab: struct {
-            offset_to_string: std.AutoArrayHashMap(usize, []const u8),
+            offset_to_string: std.AutoArrayHashMapUnmanaged(usize, []const u8),
         },
         rela,
         hash,
@@ -158,111 +157,111 @@ pub const Elf = struct {
     program_headers: std.ArrayList(ProgramHeader),
     sections: std.ArrayList(Section),
     section_buffer: []u8,
-    name_to_dynsym: std.StringArrayHashMap(*Symbol),
+    name_to_dynsym: std.StringArrayHashMapUnmanaged(*Symbol),
 
-    pub fn init(allocator: std.mem.Allocator, reader: anytype) !Elf {
+    pub fn init(allocator: std.mem.Allocator, reader: *std.Io.Reader) !Elf {
         // elf header
 
-        const magic_bytes = try reader.readBytesNoEof(4);
+        const magic_bytes = (try reader.takeArray(4)).*;
         if (!std.mem.eql(u8, &magic_bytes, &[_]u8{ 0x7f, 0x45, 0x4c, 0x46 })) {
             return error.InvalidMagic;
         }
 
-        switch (try reader.readByte()) {
+        switch (try reader.takeByte()) {
             0x01 => return error.UnsupportedClass, // 32 bit
             0x02 => {}, // 64 bit
             else => return error.InvalidClass,
         }
 
-        const endian: std.builtin.Endian = switch (try reader.readByte()) {
+        const endian: std.builtin.Endian = switch (try reader.takeByte()) {
             0x01 => .little,
             0x02 => .big,
             else => return error.InvalidEndian,
         };
 
-        switch (try reader.readByte()) {
+        switch (try reader.takeByte()) {
             0x01 => {},
             else => return error.UnsupportedElfVersion,
         }
 
-        switch (try reader.readByte()) {
+        switch (try reader.takeByte()) {
             0x00 => {}, // system v
             else => return error.UnsupportedAbi,
         }
 
-        switch (try reader.readByte()) {
+        switch (try reader.takeByte()) {
             0x00 => {},
             else => return error.UnsupportedAbiVersion,
         }
 
-        _ = try reader.readBytesNoEof(7); // padding
+        _ = try reader.takeArray(7); // padding
 
-        switch (try reader.readInt(u16, endian)) {
+        switch (try reader.takeInt(u16, endian)) {
             0x03 => {}, // shared
             else => return error.UnsupportedFileType,
         }
 
-        switch (try reader.readInt(u16, endian)) {
+        switch (try reader.takeInt(u16, endian)) {
             0xF3 => {}, // risc v
             else => return error.UnsupportedIsa,
         }
 
-        switch (try reader.readInt(u32, endian)) {
+        switch (try reader.takeInt(u32, endian)) {
             0x01 => {},
             else => return error.UnsupportedVersion,
         }
 
-        _ = try reader.readInt(u64, endian); // entry
+        _ = try reader.takeInt(u64, endian); // entry
 
         const phoff: u64 = 64;
-        switch (try reader.readInt(u64, endian)) {
+        switch (try reader.takeInt(u64, endian)) {
             phoff => {},
             else => return error.UnsupportedProgramHeaderTableOffset,
         }
 
-        const shoff = try reader.readInt(u64, endian);
+        const shoff = try reader.takeInt(u64, endian);
         if (shoff > 10_000_000) {
             return error.SectionHeaderOffsetTooLarge;
         }
 
-        _ = try reader.readInt(u32, endian); // flags
+        _ = try reader.takeInt(u32, endian); // flags
 
-        switch (try reader.readInt(u16, endian)) {
+        switch (try reader.takeInt(u16, endian)) {
             64 => {},
             else => return error.UnsupportedHeaderSize,
         }
 
         const phent_size: u64 = 0x38;
-        switch (try reader.readInt(u16, endian)) {
+        switch (try reader.takeInt(u16, endian)) {
             phent_size => {},
             else => return error.UnsupportedProgramHeaderTableEntrySize,
         }
 
-        const phnum = try reader.readInt(u16, endian);
+        const phnum = try reader.takeInt(u16, endian);
         if (phnum > 50) {
             return error.TooManyProgramHeaderTableEntries;
         }
 
         const shent_size: u64 = 0x40;
-        switch (try reader.readInt(u16, endian)) {
+        switch (try reader.takeInt(u16, endian)) {
             shent_size => {},
             else => return error.UnsupportedSectionHeaderTableEntrySize,
         }
 
-        const shnum = try reader.readInt(u16, endian);
+        const shnum = try reader.takeInt(u16, endian);
         if (shnum > 50) {
             return error.TooManySectionHeaderTableEntries;
         }
 
-        const shstrndx = try reader.readInt(u16, endian);
+        const shstrndx = try reader.takeInt(u16, endian);
 
         // program headers
 
-        var program_headers = std.ArrayList(ProgramHeader){};
+        var program_headers = std.ArrayList(ProgramHeader).empty;
         errdefer program_headers.deinit(allocator);
         for (0..phnum) |_| {
-            const kind = try reader.readInt(u32, endian);
-            const permissions = try reader.readInt(u32, endian);
+            const kind = try reader.takeInt(u32, endian);
+            const permissions = try reader.takeInt(u32, endian);
             const header = ProgramHeader{
                 .kind = switch (kind) {
                     0x00000000 => .unused,
@@ -282,12 +281,12 @@ pub const Elf = struct {
                     .writeable = permissions & 0x2 != 0,
                     .readable = permissions & 0x4 != 0,
                 },
-                .offset = try reader.readInt(u64, endian),
-                .virtual_addr = try reader.readInt(u64, endian),
-                .physical_addr = try reader.readInt(u64, endian),
-                .file_size = try reader.readInt(u64, endian),
-                .memory_size = try reader.readInt(u64, endian),
-                .alignment = try reader.readInt(u64, endian),
+                .offset = try reader.takeInt(u64, endian),
+                .virtual_addr = try reader.takeInt(u64, endian),
+                .physical_addr = try reader.takeInt(u64, endian),
+                .file_size = try reader.takeInt(u64, endian),
+                .memory_size = try reader.takeInt(u64, endian),
+                .alignment = try reader.takeInt(u64, endian),
             };
             try program_headers.append(allocator, header);
         }
@@ -304,24 +303,24 @@ pub const Elf = struct {
         }
         const section_buffer = try allocator.alloc(u8, section_buffer_len);
         errdefer allocator.free(section_buffer);
-        try reader.readNoEof(section_buffer);
+        try reader.readSliceAll(section_buffer);
 
         var arena = std.heap.ArenaAllocator.init(allocator);
         errdefer arena.deinit();
 
-        var sections = std.ArrayList(Section){};
+        var sections = std.ArrayList(Section).empty;
         errdefer sections.deinit(allocator);
         for (0..shnum) |_| {
-            const name = try reader.readInt(u32, endian);
-            const kind = try reader.readInt(u32, endian);
-            const attributes = try reader.readInt(u64, endian);
-            const addr = try reader.readInt(u64, endian);
-            const offset = try reader.readInt(u64, endian);
-            const size = try reader.readInt(u64, endian);
-            const link = try reader.readInt(u32, endian);
-            const info = try reader.readInt(u32, endian);
-            const alignment = try reader.readInt(u64, endian);
-            const entry_size = try reader.readInt(u64, endian);
+            const name = try reader.takeInt(u32, endian);
+            const kind = try reader.takeInt(u32, endian);
+            const attributes = try reader.takeInt(u64, endian);
+            const addr = try reader.takeInt(u64, endian);
+            const offset = try reader.takeInt(u64, endian);
+            const size = try reader.takeInt(u64, endian);
+            const link = try reader.takeInt(u32, endian);
+            const info = try reader.takeInt(u32, endian);
+            const alignment = try reader.takeInt(u64, endian);
+            const entry_size = try reader.takeInt(u64, endian);
             const section = Section{
                 .name_off = name,
                 .name_str = undefined,
@@ -349,14 +348,14 @@ pub const Elf = struct {
                         }
                         const start_pos = offset - section_start_pos;
                         const buffer = section_buffer[start_pos .. start_pos + size];
-                        var offset_to_string = std.AutoArrayHashMap(usize, []const u8).init(arena.allocator());
+                        var offset_to_string: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .empty;
                         var i: usize = 0;
                         while (i < buffer.len) {
                             if (std.mem.indexOf(u8, buffer[i..], "\x00")) |next_i| {
-                                try offset_to_string.put(i, buffer[i .. i + next_i]);
+                                try offset_to_string.put(arena.allocator(), i, buffer[i .. i + next_i]);
                                 i += next_i + 1;
                             } else {
-                                try offset_to_string.put(i, buffer[i..]);
+                                try offset_to_string.put(arena.allocator(), i, buffer[i..]);
                                 break;
                             }
                         }
@@ -382,7 +381,7 @@ pub const Elf = struct {
                             return error.InvalidSectionSize;
                         }
                         const start_pos = offset - section_start_pos;
-                        var symbols = std.ArrayList(Symbol){};
+                        var symbols = std.ArrayList(Symbol).empty;
                         for (0..size / entry_size) |i| {
                             const entry_start_pos = start_pos + (entry_size * i);
                             const buffer = section_buffer[entry_start_pos .. entry_start_pos + entry_size];
@@ -446,12 +445,12 @@ pub const Elf = struct {
             }
         }
 
-        var name_to_dynsym = std.StringArrayHashMap(*Symbol).init(allocator);
-        errdefer name_to_dynsym.deinit();
+        var name_to_dynsym: std.StringArrayHashMapUnmanaged(*Symbol) = .empty;
+        errdefer name_to_dynsym.deinit(allocator);
         for (sections.items) |section| {
             if (section.kind == .dynsym) {
                 for (section.kind.dynsym.symbols.items) |*symbol| {
-                    try name_to_dynsym.putNoClobber(symbol.name_str, symbol);
+                    try name_to_dynsym.putNoClobber(allocator, symbol.name_str, symbol);
                 }
             }
         }
@@ -470,6 +469,6 @@ pub const Elf = struct {
         self.program_headers.deinit(allocator);
         self.sections.deinit(allocator);
         allocator.free(self.section_buffer);
-        self.name_to_dynsym.deinit();
+        self.name_to_dynsym.deinit(allocator);
     }
 };
